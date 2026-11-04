@@ -89,7 +89,8 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             # 版本已存在：换掉旧的安装包，更新说明
             $old = gh release view $tag --json assets --jq '.assets[] | select(.name | endswith(".exe")) | .name'
-            foreach ($a in $old) { if ($a) { gh release delete-asset $tag $a -y } }
+            # “--” 防止以“-”开头的文件名被当成参数
+            foreach ($a in $old) { if ($a) { gh release delete-asset -y -- $tag $a } }
             gh release upload $tag $asset --clobber
             if ($LASTEXITCODE -ne 0) { exit 1 }
             if (Test-Path $notes) { gh release edit $tag --notes-file $notes }
