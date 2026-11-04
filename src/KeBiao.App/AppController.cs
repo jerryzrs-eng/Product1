@@ -218,7 +218,7 @@ public sealed class AppController
 
     public void SetFontLevel(int level)
     {
-        Ui.FontLevel = Math.Clamp(level, -2, 2);
+        Ui.FontLevel = Math.Clamp(level, -3, 3);
         Vm.Scale = Ui.Scale;
         SaveUi();
         Window?.Dispatcher.BeginInvoke(() => Window?.EnsureOnScreen(), DispatcherPriority.Loaded);

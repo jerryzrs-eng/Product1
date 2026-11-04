@@ -209,14 +209,33 @@ public partial class SettingsWindow : Window
             Padding = new Thickness(2),
         };
         var fontRow = new StackPanel { Orientation = Orientation.Horizontal };
-        string[] fontNames = { "特小", "小", "标准", "大", "特大" };
-        for (int i = 0; i < fontNames.Length; i++)
+        // 字号步进器：− / 当前百分比 / +，点击中间百分比重置为标准（100%）
+        var percent = new Button
         {
-            int lv = i - 2;
-            var rb = new RadioButton { Content = fontNames[i], GroupName = "font", Style = (Style)FindResource("Segment"), IsChecked = _app.Ui.FontLevel == lv };
-            rb.Checked += (_, _) => _app.SetFontLevel(lv);
-            fontRow.Children.Add(rb);
+            Width = 76,
+            Height = 40,
+            FontSize = 15,
+            Foreground = (Brush)FindResource("Ink"),
+            Background = Brushes.White,
+            BorderThickness = new Thickness(0),
+            Cursor = System.Windows.Input.Cursors.Hand,
+        };
+        var minus = new Button { Content = "−", Width = 40, Height = 40, FontSize = 18, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Cursor = System.Windows.Input.Cursors.Hand };
+        var plus = new Button { Content = "+", Width = 40, Height = 40, FontSize = 18, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Cursor = System.Windows.Input.Cursors.Hand };
+        void RefreshFontStepper()
+        {
+            int pct = (int)Math.Round((1.0 + _app.Ui.FontLevel * 0.15) * 100);
+            percent.Content = pct + "%";
+            minus.IsEnabled = _app.Ui.FontLevel > -3;
+            plus.IsEnabled = _app.Ui.FontLevel < 3;
         }
+        RefreshFontStepper();
+        minus.Click += (_, _) => { _app.SetFontLevel(_app.Ui.FontLevel - 1); RefreshFontStepper(); };
+        plus.Click += (_, _) => { _app.SetFontLevel(_app.Ui.FontLevel + 1); RefreshFontStepper(); };
+        percent.Click += (_, _) => { _app.SetFontLevel(0); RefreshFontStepper(); };
+        fontRow.Children.Add(minus);
+        fontRow.Children.Add(percent);
+        fontRow.Children.Add(plus);
         font.Child = fontRow;
 
         var soon = new Border
