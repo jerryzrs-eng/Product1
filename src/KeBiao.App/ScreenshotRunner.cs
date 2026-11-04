@@ -59,6 +59,17 @@ public static class ScreenshotRunner
             View("15-折叠-放假", d, At(Mon, 9, 0), collapsed: true);
         });
         Try("16-展开-锁定", () => View("16-展开-锁定", sample, At(Mon, 14, 0), locked: true));
+        Try("17-展开-晚自习-节次名", () => View("17-展开-晚自习-节次名", sample, At(Mon, 18, 50)));
+        Try("18-折叠-特小字号", () => View("18-折叠-特小字号", sample, At(Mon, 12, 40), collapsed: true, scale: 0.75));
+        Try("19-展开-小字号", () => View("19-展开-小字号", sample, At(Mon, 12, 40), scale: 0.875));
+        Try("19b-展开-考试课表", () =>
+        {
+            var d = sample.DeepClone();
+            var exam = SampleData.ExamTimetable();
+            d.Timetables.Add(exam);
+            ScheduleEngine.SetOverride(d, Mon, DayOverrideKind.UseTimetable, timetableId: exam.Id);
+            View("19b-展开-考试课表", d, At(Mon, 9, 0));
+        });
 
         // 设置窗口
         var tmp = Path.Combine(Path.GetTempPath(), "kebiao-shots-" + Guid.NewGuid().ToString("N"));
@@ -70,7 +81,11 @@ public static class ScreenshotRunner
         ScheduleEngine.SetOverride(data, Mon.AddDays(10), DayOverrideKind.Holiday);
         store.Save(data, "11月12日放假");
         ScheduleEngine.SwapForDay(data, Mon, 1, 2);
-        store.Save(data, "调课：第2节⇄第3节（仅11月2日）");
+        store.Save(data, "调课：第1节⇄第2节（仅11月2日）");
+        var examTt = SampleData.ExamTimetable();
+        data.Timetables.Add(examTt);
+        ScheduleEngine.SetOverrideRange(data, Mon.AddDays(16), Mon.AddDays(18), DayOverrideKind.UseTimetable, timetableId: examTt.Id);
+        store.Save(data, "11月18日–11月20日使用“期中考试”");
         var app = new AppController(store, () => At(Mon, 10, 18));
 
         foreach (var (page, name) in new[] { ("basic", "20-设置-基本"), ("table", "21-设置-课表与作息"), ("dates", "22-设置-日期调整"), ("import", "23-设置-导入导出"), ("history", "24-设置-历史版本") })
@@ -115,7 +130,7 @@ public static class ScreenshotRunner
         });
         Try("27-对话框-调课范围", () =>
         {
-            var d = new ChoiceDialog("第2节 语文 ⇄ 第3节 历史", null, new[] { "仅今天", "以后每个周一都这样" });
+            var d = new ChoiceDialog("第1节 语文 ⇄ 第2节 历史", null, new[] { "仅今天", "以后每个周一都这样" });
             d.Show();
             Snap(d, "27-对话框-调课范围");
             d.Close();
@@ -128,6 +143,27 @@ public static class ScreenshotRunner
             d.Close();
         });
         Try("29-菜单", () => MenuShot(app));
+        Try("30-时间滚轮", () =>
+        {
+            var d = TimePickerDialog.CreateForPreview("第3节 上课", new TimeOnly(10, 25));
+            d.Show();
+            Snap(d, "30-时间滚轮");
+            d.Close();
+        });
+        Try("31-格子编辑-普通", () =>
+        {
+            var d = CellEditorDialog.CreateForPreview("周一 · 第2节", "历史", sample.Active.UsedSubjects());
+            d.Show();
+            Snap(d, "31-格子编辑-普通");
+            d.Close();
+        });
+        Try("32-格子编辑-单双周", () =>
+        {
+            var d = CellEditorDialog.CreateForPreview("周五 · 第5节", "单:音乐\n双:美术", sample.Active.UsedSubjects());
+            d.Show();
+            Snap(d, "32-格子编辑-单双周");
+            d.Close();
+        });
 
         File.WriteAllText(Path.Combine(_dir, "log.txt"), log.ToString());
         try { Directory.Delete(tmp, true); } catch { }

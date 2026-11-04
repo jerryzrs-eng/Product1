@@ -155,7 +155,7 @@ public static partial class TimetableImporter
         }
 
         var head = rows[header];
-        int timeCol = -1, startCol = -1, endCol = -1;
+        int timeCol = -1, startCol = -1, endCol = -1, labelCol = -1;
         var dayCols = new int[7];
         Array.Fill(dayCols, -1);
         for (int c = 0; c < head.Count; c++)
@@ -163,7 +163,8 @@ public static partial class TimetableImporter
             var h = head[c].Trim();
             int d = DayOf(h);
             if (d >= 0 && dayCols[d] < 0) { dayCols[d] = c; continue; }
-            if (h is "开始" or "开始时间" or "上课" or "上课时间") startCol = c;
+            if (h is "节次" or "节" or "课节" or "节数" or "课次") labelCol = c;
+            else if (h is "开始" or "开始时间" or "上课" or "上课时间") startCol = c;
             else if (h is "结束" or "结束时间" or "下课" or "下课时间") endCol = c;
             else if (h.Contains("时间") || h is "时段" or "作息") timeCol = c;
         }
@@ -213,6 +214,13 @@ public static partial class TimetableImporter
                 }
             }
 
+            var labelText = Cell(labelCol).Trim();
+            if (labelText.Length > 0 && !Regex.IsMatch(labelText, @"^第?\s*[0-9一二三四五六七八九十]+\s*节?$"))
+            {
+                if (labelText.Length > Period.MaxLabelLength)
+                    result.Warnings.Add(new ImportIssue(r + 1, labelCol + 1, $"节次名“{labelText}”超过 {Period.MaxLabelLength} 个字，只保留“{labelText[..Period.MaxLabelLength]}”"));
+                period.Label = Period.CleanLabel(labelText);
+            }
             result.Periods.Add(period);
             result.Timetable.Add(subjects);
             result.SourceRows.Add(r + 1);
@@ -432,23 +440,30 @@ public static partial class TimetableImporter
         return r;
     }
 
-    /// <summary>把导入结果写进课表数据：替换整张课表，作息写入指定的一套（或新建）。</summary>
-    public static void Apply(ScheduleData data, ImportResult result, string? targetBellId, string? newBellName, bool applyClassName, bool applyTermStart)
+    /// <summary>
+    /// 把导入结果写进指定的课表：替换它当前作息的上下课时间和整张科目表。
+    /// targetTimetableId 为空时新建一张课表。返回写入的那张课表。
+    /// </summary>
+    public static Timetable Apply(ScheduleData data, ImportResult result, string? targetTimetableId, string? newTimetableName,
+        bool makeActive, bool applyClassName, bool applyTermStart)
     {
-        BellSchedule bell;
-        if (targetBellId != null && data.Bells.FirstOrDefault(b => b.Id == targetBellId) is { } existing)
-            bell = existing;
-        else
+        var tt = data.FindTimetable(targetTimetableId);
+        if (tt == null)
         {
-            bell = new BellSchedule { Name = string.IsNullOrWhiteSpace(newBellName) ? "导入的作息" : newBellName.Trim() };
-            data.Bells.Add(bell);
+            tt = new Timetable { Name = string.IsNullOrWhiteSpace(newTimetableName) ? "导入的课表" : newTimetableName.Trim() };
+            tt.Bells.Add(new BellSchedule());
+            data.Timetables.Add(tt);
         }
-        bell.Periods = result.Periods.Select(p => p.Clone()).ToList();
-        data.ActiveBellId = bell.Id;
-        data.Timetable = result.Timetable.Select(r => r.ToList()).ToList();
-        data.SubjectOverrides.Clear();
+        tt.ActiveBell.Periods = result.Periods.Select(p => p.Clone()).ToList();
+        tt.Grid = result.Timetable.Select(r => r.ToList()).ToList();
+        if (makeActive)
+        {
+            data.ActiveTimetableId = tt.Id;
+            data.SubjectOverrides.Clear();
+        }
         if (applyClassName && !string.IsNullOrWhiteSpace(result.ClassName)) data.ClassName = result.ClassName!;
         if (applyTermStart && result.TermStart.HasValue) data.TermStart = result.TermStart;
         data.Normalize();
+        return tt;
     }
 }

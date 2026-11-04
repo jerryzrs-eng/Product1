@@ -54,19 +54,20 @@ public static class TemplateWriter
             cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         }
 
-        var bell = data.ActiveBell;
-        int rows = Math.Max(bell.Periods.Count, data.Timetable.Count);
+        var tt = data.Active;
+        var bell = tt.ActiveBell;
+        int rows = Math.Max(bell.Periods.Count, tt.Grid.Count);
         for (int i = 0; i < rows; i++)
         {
             int r = head + 1 + i;
-            ws.Cell(r, 1).Value = (i + 1).ToString();
+            ws.Cell(r, 1).Value = i < bell.Periods.Count && bell.Periods[i].Label is { } lb ? lb : (i + 1).ToString();
             ws.Cell(r, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(r, 1).Style.Font.FontColor = XLColor.FromHtml("#6B7280");
             if (i < bell.Periods.Count)
                 ws.Cell(r, 2).Value = $"{bell.Periods[i].Start:HH\\:mm}-{bell.Periods[i].End:HH\\:mm}";
             for (int d = 0; d < 7; d++)
             {
-                var v = i < data.Timetable.Count ? data.Timetable[i][d] : "";
+                var v = i < tt.Grid.Count ? tt.Grid[i][d] : "";
                 var cell = ws.Cell(r, 3 + d);
                 cell.Value = v;
                 cell.Style.Alignment.WrapText = true;
@@ -91,6 +92,7 @@ public static class TemplateWriter
             "",
             "1. 只改“课表”这一页。上面两行填班级和开学日期（开学日期用来推算第几周、单双周，不填也能用）。",
             "2. “时间”写成 07:40-08:10。每一行是一节课，从早到晚排列，时间不能重叠。",
+            "   “节次”可以写数字，也可以写名称（如 早读、午托、晚自习一，最多 4 个字）。写数字的会自动编号。",
             "3. 周一到周日每格写科目名。没课就空着。周六、周日没课就整列空着。",
             "4. 走班或选课，原样写，例如：生物/政治。屏幕上会照原样显示。",
             "5. 单双周不同的课，写成：单:音乐 双:美术（可以写在一行，也可以按 Alt+回车 分两行）。",

@@ -29,7 +29,7 @@ public enum RowState { Past, Current, Soon, Future, Message }
 public sealed class LessonRow : Observable
 {
     private int _periodIndex = -1;
-    private string _number = "";
+    private string _tag = "";
     private string _name = "";
     private string _timeText = "";
     private RowState _state;
@@ -40,7 +40,10 @@ public sealed class LessonRow : Observable
     private bool _isDropTarget;
 
     public int PeriodIndex { get => _periodIndex; set => Set(ref _periodIndex, value); }
-    public string Number { get => _number; set => Set(ref _number, value); }
+    /// <summary>节次：“01”或自定义名称（3~4 个字时分两行显示）。</summary>
+    public string Tag { get => _tag; set { if (Set(ref _tag, value)) { Raise(nameof(TagText)); Raise(nameof(TagTwoLines)); } } }
+    public string TagText => _tag.Length > 2 ? _tag[..2] + "\n" + _tag[2..] : _tag;
+    public bool TagTwoLines => _tag.Length > 2;
     public string Name { get => _name; set => Set(ref _name, value); }
     public string TimeText { get => _timeText; set => Set(ref _timeText, value); }
     public RowState State { get => _state; set => Set(ref _state, value); }
@@ -54,7 +57,7 @@ public sealed class LessonRow : Observable
 
     public void CopyFrom(LessonRow o)
     {
-        PeriodIndex = o.PeriodIndex; Number = o.Number; Name = o.Name; TimeText = o.TimeText;
+        PeriodIndex = o.PeriodIndex; Tag = o.Tag; Name = o.Name; TimeText = o.TimeText;
         State = o.State; Progress = o.Progress; Large = o.Large; Editing = o.Editing;
     }
 }
@@ -100,9 +103,11 @@ public sealed class ScheduleViewModel : Observable
         var date = now.ToString("M月d日 dddd", Zh);
         var extra = new List<string>();
         if (plan.WeekNumber is { } w) extra.Add($"第{w}周");
-        if (UsesParity(data)) extra.Add(plan.IsOddWeek ? "单周" : "双周");
+        if (data.UsesParity) extra.Add(plan.IsOddWeek ? "单周" : "双周");
         if (plan.Override?.Kind == DayOverrideKind.FollowWeekday)
             extra.Add($"按{ScheduleEngine.WeekdayName(plan.Override.Weekday)}上课");
+        if (plan.Override?.Kind == DayOverrideKind.UseTimetable)
+            extra.Add($"用“{plan.Timetable.Name}”");
         DateText = extra.Count == 0 ? date : date + " · " + string.Join(" ", extra);
 
         // 展开时的整日列表
@@ -178,13 +183,10 @@ public sealed class ScheduleViewModel : Observable
         Sync(CompactRows, compact);
     }
 
-    public static bool UsesParity(ScheduleData data) =>
-        data.Timetable.Any(r => r.Any(c => CellParser.Parse(c).HasParity));
-
     private LessonRow MakeRow(Lesson l, RowState st, double progress, bool large) => new()
     {
         PeriodIndex = l.Index,
-        Number = l.Number.ToString("00"),
+        Tag = l.Tag,
         Name = l.Name,
         TimeText = $"{l.Start:HH\\:mm}–{l.End:HH\\:mm}",
         State = st,

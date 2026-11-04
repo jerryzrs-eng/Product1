@@ -181,6 +181,7 @@ public partial class SettingsWindow : Window
             UpdateWeek();
         };
 
+        bool showParity = Data.UsesParity;
         var parityText = Label("");
         void UpdateParity() => parityText.Text = ScheduleEngine.IsOddWeek(Data, Today) ? "本周：单周" : "本周：双周";
         UpdateParity();
@@ -204,11 +205,11 @@ public partial class SettingsWindow : Window
             Padding = new Thickness(2),
         };
         var fontRow = new StackPanel { Orientation = Orientation.Horizontal };
-        string[] fontNames = { "标准", "大", "特大" };
-        for (int i = 0; i < 3; i++)
+        string[] fontNames = { "特小", "小", "标准", "大", "特大" };
+        for (int i = 0; i < fontNames.Length; i++)
         {
-            int lv = i;
-            var rb = new RadioButton { Content = fontNames[i], GroupName = "font", Style = (Style)FindResource("Segment"), IsChecked = _app.Ui.FontLevel == i };
+            int lv = i - 2;
+            var rb = new RadioButton { Content = fontNames[i], GroupName = "font", Style = (Style)FindResource("Segment"), IsChecked = _app.Ui.FontLevel == lv };
             rb.Checked += (_, _) => _app.SetFontLevel(lv);
             fontRow.Children.Add(rb);
         }
@@ -225,13 +226,17 @@ public partial class SettingsWindow : Window
         auto.Checked += (_, _) => SystemIntegration.AutoStartEnabled = true;
         auto.Unchecked += (_, _) => SystemIntegration.AutoStartEnabled = false;
 
-        root.Children.Add(Form(
+        var rows = new List<(string, UIElement)>
+        {
             ("班级", name),
             ("开学日期", Row(start, weekText)),
-            ("单双周", Row(parityText, flip)),
-            ("字号", font),
-            ("显示", topPanel),
-            ("启动", auto)));
+        };
+        // 课表里没有任何单双周的课时，不显示单双周设置
+        if (showParity) rows.Add(("单双周", Row(parityText, flip)));
+        rows.Add(("字号", font));
+        rows.Add(("显示", topPanel));
+        rows.Add(("启动", auto));
+        root.Children.Add(Form(rows.ToArray()));
         return Scroll(root);
     }
 
@@ -250,42 +255,72 @@ public partial class SettingsWindow : Window
         var root = new StackPanel();
         root.Children.Add(PageTitle("日期调整"));
 
-        var date = new DatePicker { SelectedDate = _app.Now.Date, Width = 200 };
-        var kind = new ComboBox { Width = 180 };
-        for (int wd = 1; wd <= 7; wd++) kind.Items.Add($"按{ScheduleEngine.WeekdayName(wd)}上课");
-        kind.Items.Add("放假");
+        var from = new DatePicker { SelectedDate = _app.Now.Date, Width = 170 };
+        var to = new DatePicker { SelectedDate = _app.Now.Date, Width = 170 };
+        from.SelectedDateChanged += (_, _) =>
+        {
+            if (from.SelectedDate is DateTime f && (to.SelectedDate is not DateTime t || t < f)) to.SelectedDate = f;
+        };
+        var kind = new ComboBox { Width = 220 };
+        var options = new List<(DayOverrideKind kind, int weekday, string? id)>();
+        for (int wd = 1; wd <= 7; wd++) { kind.Items.Add($"按{ScheduleEngine.WeekdayName(wd)}上课"); options.Add((DayOverrideKind.FollowWeekday, wd, null)); }
+        kind.Items.Add("放假"); options.Add((DayOverrideKind.Holiday, 1, null));
+        foreach (var t in Data.Timetables.Where(t => t.Id != Data.ActiveTimetableId))
+        {
+            kind.Items.Add($"使用“{t.Name}”");
+            options.Add((DayOverrideKind.UseTimetable, 1, t.Id));
+        }
         kind.SelectedIndex = 0;
         var add = Btn("添加", () =>
         {
-            if (date.SelectedDate is not DateTime dt) return;
-            var d = DateOnly.FromDateTime(dt);
-            if (kind.SelectedIndex == 7) _app.SetDay(d, DayOverrideKind.Holiday);
-            else _app.SetDay(d, DayOverrideKind.FollowWeekday, kind.SelectedIndex + 1);
+            if (from.SelectedDate is not DateTime f || kind.SelectedIndex < 0) return;
+            var t = to.SelectedDate is DateTime tt ? tt : f;
+            var (k, wd, id) = options[kind.SelectedIndex];
+            int days = Math.Abs((t - f).Days) + 1;
+            if (days > 60) { ChoiceDialog.Info("日期范围太长", "一次最多设置 60 天。长期改用另一张课表，请在“课表与作息”里把它设为当前课表。"); return; }
+            _app.SetDays(DateOnly.FromDateTime(f), DateOnly.FromDateTime(t), k, wd, id);
         }, "PrimaryButton");
-        root.Children.Add(Row(date, kind, add));
+        var dash = Label("至");
+        dash.Margin = new Thickness(0, 0, 12, 0);
+        root.Children.Add(Row(from, dash, to, kind, add));
         root.Children.Add(new FrameworkElement { Height = 24 });
 
+        // 把连续几天相同的调整合并成一行
         var list = Data.DayOverrides.Where(o => o.Date >= Today).OrderBy(o => o.Date).ToList();
-        var swapToday = Data.SubjectOverrides.Any(o => o.Date == Today);
-        if (list.Count == 0 && !swapToday)
-        {
-            root.Children.Add(Hint("没有设置调整。调休补课、放假时在上面添加，只在那一天生效。"));
-        }
+        var groups = new List<List<DayOverride>>();
         foreach (var o in list)
         {
-            var g = new Grid { Margin = new Thickness(0, 0, 0, 6), MaxWidth = 640, HorizontalAlignment = HorizontalAlignment.Left };
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var wd = ScheduleEngine.WeekdayName(ScheduleEngine.ToWeekday(o.Date.DayOfWeek));
-            var dl = new TextBlock { Text = $"{o.Date.Month}月{o.Date.Day}日 {wd}" + (o.Date == Today ? "（今天）" : ""), FontSize = 16, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
-            var kl = new TextBlock { Text = o.Kind == DayOverrideKind.Holiday ? "放假" : $"按{ScheduleEngine.WeekdayName(o.Weekday)}上课", FontSize = 16, VerticalAlignment = VerticalAlignment.Center, Foreground = (Brush)FindResource("InkSoft") };
-            var od = o.Date;
-            var del = Btn("删除", () => _app.ClearDay(od), "DangerButton");
+            var last = groups.LastOrDefault();
+            var prev = last?.Last();
+            if (prev != null && prev.Date.AddDays(1) == o.Date && prev.Kind == o.Kind && prev.Weekday == o.Weekday && prev.TimetableId == o.TimetableId)
+                last!.Add(o);
+            else groups.Add(new List<DayOverride> { o });
+        }
+        var swapToday = Data.SubjectOverrides.Any(o => o.Date == Today);
+        if (groups.Count == 0 && !swapToday)
+            root.Children.Add(Hint("调休补课、放假、考试周在上面添加，只在那几天生效，过后自动失效。"));
+        foreach (var g in groups)
+        {
+            var row = new Grid { Margin = new Thickness(0, 0, 0, 6), MaxWidth = 720, HorizontalAlignment = HorizontalAlignment.Left };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(280) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(260) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            string D(DateOnly d) => $"{d.Month}月{d.Day}日 {ScheduleEngine.WeekdayName(ScheduleEngine.ToWeekday(d.DayOfWeek))}";
+            var first = g[0];
+            var text = g.Count == 1 ? D(first.Date) : $"{D(first.Date)} – {D(g[^1].Date)}";
+            if (first.Date == Today) text += g.Count == 1 ? "（今天）" : "（今天起）";
+            var dl = new TextBlock { Text = text, FontSize = 16, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+            var kl = new TextBlock { Text = _app.DescribeOverride(first.Kind, first.Weekday, first.TimetableId), FontSize = 16, VerticalAlignment = VerticalAlignment.Center, Foreground = (Brush)FindResource("InkSoft") };
+            var dates = g.Select(o => o.Date).ToList();
+            var del = Btn("删除", () =>
+            {
+                foreach (var d in dates) ScheduleEngine.ClearOverride(Data, d);
+                _app.Commit(dates.Count == 1 ? $"{dates[0].Month}月{dates[0].Day}日恢复正常课表" : $"{dates[0].Month}月{dates[0].Day}日起 {dates.Count} 天恢复正常课表");
+            }, "DangerButton");
             Grid.SetColumn(kl, 1);
             Grid.SetColumn(del, 2);
-            g.Children.Add(dl); g.Children.Add(kl); g.Children.Add(del);
-            root.Children.Add(g);
+            row.Children.Add(dl); row.Children.Add(kl); row.Children.Add(del);
+            root.Children.Add(row);
         }
         if (swapToday)
         {

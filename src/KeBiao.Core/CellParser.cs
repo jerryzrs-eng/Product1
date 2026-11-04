@@ -58,6 +58,24 @@ public static partial class CellParser
         return (isOddWeek ? p.Odd : p.Even) ?? "";
     }
 
+    /// <summary>编辑面板的结果拼回格子文字。两周相同就当普通课；都空就是没课。</summary>
+    public static string Compose(string? odd, string? even)
+    {
+        var o = Sanitize(odd);
+        var e = Sanitize(even);
+        if (o == e) return o;
+        if (o.Length == 0) return $"双:{e}";
+        if (e.Length == 0) return $"单:{o}";
+        return $"单:{o}\n双:{e}";
+    }
+
+    /// <summary>手动输入的科目名：去掉换行，并避免被误认成单双周写法。</summary>
+    public static string Sanitize(string? s)
+    {
+        var t = string.Join(" ", (s ?? "").Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)).Trim();
+        return MarkerRegex().Replace(t, m => m.Value.Replace(":", "").Replace("：", ""));
+    }
+
     public static string Clean(string? raw)
     {
         if (string.IsNullOrEmpty(raw)) return "";

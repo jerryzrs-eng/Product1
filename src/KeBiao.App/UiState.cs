@@ -12,12 +12,12 @@ public sealed class UiState
     public double? Top { get; set; }
     public bool Collapsed { get; set; }
     public bool Locked { get; set; }
-    /// <summary>0 = 标准，1 = 大，2 = 特大。</summary>
+    /// <summary>-2 = 特小，-1 = 小，0 = 标准，1 = 大，2 = 特大。</summary>
     public int FontLevel { get; set; }
     public bool Topmost { get; set; }
     public bool TrayPromoted { get; set; }
 
-    public double Scale => FontLevel switch { 1 => 1.2, 2 => 1.45, _ => 1.0 };
+    public double Scale => FontLevel switch { -2 => 0.75, -1 => 0.875, 1 => 1.2, 2 => 1.45, _ => 1.0 };
 
     public static UiState Load(string dir)
     {

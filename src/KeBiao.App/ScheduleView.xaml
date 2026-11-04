@@ -30,7 +30,8 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <TextBlock x:Name="num" Text="{Binding Number}" FontSize="13" FontWeight="SemiBold"
+                    <TextBlock x:Name="num" Text="{Binding TagText}" FontSize="13" FontWeight="SemiBold" LineHeight="14"
+                               LineStackingStrategy="BlockLineHeight"
                                Foreground="{StaticResource InkMuted}" VerticalAlignment="Center" />
                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
                         <TextBlock x:Name="name" Text="{Binding Name}" FontSize="20" FontWeight="SemiBold"
@@ -51,7 +52,15 @@
                 <DataTrigger Binding="{Binding State}" Value="Past">
                     <Setter TargetName="content" Property="Opacity" Value="0.42" />
                 </DataTrigger>
+                <DataTrigger Binding="{Binding TagTwoLines}" Value="True">
+                    <Setter TargetName="num" Property="FontSize" Value="11" />
+                    <Setter TargetName="num" Property="LineHeight" Value="12.5" />
+                </DataTrigger>
                 <DataTrigger Binding="{Binding State}" Value="Current">
+                    <Setter TargetName="badge" Property="Visibility" Value="Visible" />
+                    <Setter TargetName="badge" Property="BorderBrush" Value="{StaticResource AccentProgress}" />
+                    <Setter TargetName="badgeText" Property="Text" Value="当前课程" />
+                    <Setter TargetName="badgeText" Property="Foreground" Value="{StaticResource AccentInk}" />
                     <Setter TargetName="bg" Property="Background" Value="{StaticResource AccentFill}" />
                     <Setter TargetName="progress" Property="Visibility" Value="Visible" />
                     <Setter TargetName="bar" Property="Background" Value="{StaticResource Accent}" />
@@ -91,6 +100,14 @@
                     </MultiDataTrigger.Conditions>
                     <Setter TargetName="name" Property="FontSize" Value="20" />
                     <Setter TargetName="numCol" Property="Width" Value="0" />
+                </MultiDataTrigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding TagTwoLines}" Value="True" />
+                        <Condition Binding="{Binding Large}" Value="True" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter TargetName="num" Property="FontSize" Value="12" />
+                    <Setter TargetName="num" Property="LineHeight" Value="14" />
                 </MultiDataTrigger>
                 <DataTrigger Binding="{Binding Editing}" Value="True">
                     <Setter TargetName="grip" Property="Visibility" Value="Visible" />

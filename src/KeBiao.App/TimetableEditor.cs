@@ -8,59 +8,60 @@ using KeBiao.Core;
 
 namespace KeBiao.App;
 
-/// <summary>“课表与作息”页：表格形式同时编辑上下课时间和每天每节的科目。点“保存”才生效。</summary>
+/// <summary>
+/// “课表与作息”页：管理多张课表，每张课表自带若干套作息。
+/// 点时间格用滚轮选时间，点科目格弹出编辑面板；节次名可自定义。点“保存”才生效。
+/// </summary>
 public sealed class TimetableEditor
 {
-    private sealed class RowBoxes
-    {
-        public TextBox Start = null!, End = null!;
-        public TextBox[] Days = new TextBox[7];
-    }
-
     private readonly AppController _app;
     private readonly Window _owner;
     private readonly ScheduleData _draft;
+    private Timetable _tt;
     private BellSchedule _bell;
-    private readonly ComboBox _bells = new() { Width = 220, Margin = new Thickness(0, 0, 12, 0) };
-    private readonly Button _useBtn;
+
+    private readonly ComboBox _tables = new() { Width = 240, Margin = new Thickness(0, 0, 12, 0) };
+    private readonly ComboBox _bells = new() { Width = 240, Margin = new Thickness(0, 0, 12, 0) };
+    private readonly Button _useTable;
+    private readonly Button _useBell;
     private readonly Grid _grid = new();
-    private readonly List<RowBoxes> _rows = new();
-    private readonly Brush _errBrush = new SolidColorBrush(Color.FromRgb(0xE5, 0x48, 0x4D));
+    private readonly List<Button> _timeButtons = new();
     private bool _loading;
 
     public bool Dirty { get; private set; }
     public UIElement Root { get; }
+
+    private static Brush R(string key) => (Brush)Application.Current.FindResource(key);
 
     public TimetableEditor(AppController app, Window owner)
     {
         _app = app;
         _owner = owner;
         _draft = app.Data.DeepClone();
-        _bell = _draft.ActiveBell;
+        _tt = _draft.Active;
+        _bell = _tt.ActiveBell;
 
         var root = new DockPanel();
         var title = new TextBlock { Text = "课表与作息", Style = (Style)Application.Current.FindResource("SectionTitle") };
         DockPanel.SetDock(title, Dock.Top);
         root.Children.Add(title);
 
-        // 作息选择
-        var bar = new WrapPanel { Margin = new Thickness(0, 0, 0, 14) };
-        bar.Children.Add(new TextBlock { Text = "作息", Style = (Style)Application.Current.FindResource("FieldLabel"), Margin = new Thickness(0, 0, 12, 0) });
-        bar.Children.Add(_bells);
-        _useBtn = MakeButton("设为使用中", UseSelected);
-        bar.Children.Add(_useBtn);
-        bar.Children.Add(MakeButton("复制为新作息", CopyBell));
-        bar.Children.Add(MakeButton("重命名", RenameBell));
-        bar.Children.Add(MakeButton("删除", DeleteBell, "DangerButton"));
-        DockPanel.SetDock(bar, Dock.Top);
-        root.Children.Add(bar);
+        _useTable = MakeButton("设为当前课表", UseTable);
+        var tableBar = Bar("课表", _tables, _useTable,
+            MakeButton("新建", NewTable), MakeButton("复制", CopyTable), MakeButton("重命名", RenameTable), MakeButton("删除", DeleteTable, "DangerButton"));
+        DockPanel.SetDock(tableBar, Dock.Top);
+        root.Children.Add(tableBar);
 
-        // 底部按钮
+        _useBell = MakeButton("设为使用中", UseBell);
+        var bellBar = Bar("作息", _bells, _useBell,
+            MakeButton("复制为新作息", CopyBell), MakeButton("重命名", RenameBell), MakeButton("删除", DeleteBell, "DangerButton"));
+        bellBar.Margin = new Thickness(0, 0, 0, 16);
+        DockPanel.SetDock(bellBar, Dock.Top);
+        root.Children.Add(bellBar);
+
         var bottom = new DockPanel { Margin = new Thickness(0, 14, 0, 0), LastChildFill = false };
-        var addRow = MakeButton("添加一节", AddRow);
-        var delRow = MakeButton("删除最后一节", RemoveRow);
-        bottom.Children.Add(addRow);
-        bottom.Children.Add(delRow);
+        bottom.Children.Add(MakeButton("添加一节", AddRow));
+        bottom.Children.Add(MakeButton("删除最后一节", RemoveRow));
         var save = MakeButton("保存", () => TrySave(), "PrimaryButton");
         save.Margin = new Thickness(0);
         var discard = MakeButton("放弃修改", Discard);
@@ -71,46 +72,42 @@ public sealed class TimetableEditor
         DockPanel.SetDock(bottom, Dock.Bottom);
         root.Children.Add(bottom);
 
-        var hint = new TextBlock
-        {
-            Text = "没课的格子留空。走班写成“生物/政治”。单双周不同写成“单:音乐 双:美术”。",
-            Style = (Style)Application.Current.FindResource("Hint"),
-            Margin = new Thickness(0, 10, 0, 0),
-        };
-        DockPanel.SetDock(hint, Dock.Bottom);
-        root.Children.Add(hint);
-
-        var scroll = new ScrollViewer
+        root.Children.Add(new ScrollViewer
         {
             Content = _grid,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             PanningMode = PanningMode.Both,
-        };
-        root.Children.Add(scroll);
+        });
         Root = root;
 
+        _tables.SelectionChanged += (_, _) =>
+        {
+            if (_loading || _tables.SelectedIndex < 0) return;
+            _tt = _draft.Timetables[_tables.SelectedIndex];
+            _bell = _tt.ActiveBell;
+            RefreshBars();
+            BuildGrid();
+        };
         _bells.SelectionChanged += (_, _) =>
         {
             if (_loading || _bells.SelectedIndex < 0) return;
-            var target = _draft.Bells[_bells.SelectedIndex];
-            if (target == _bell) return;
-            if (!CollectTimes(out var err))
-            {
-                ChoiceDialog.Info("先改正时间", err);
-                _loading = true;
-                _bells.SelectedIndex = _draft.Bells.IndexOf(_bell);
-                _loading = false;
-                return;
-            }
-            CollectCells();
-            _bell = target;
+            _bell = _tt.Bells[_bells.SelectedIndex];
+            RefreshBars();
             BuildGrid();
-            RefreshBellList();
         };
 
-        RefreshBellList();
+        RefreshBars();
         BuildGrid();
+    }
+
+    private static WrapPanel Bar(string label, ComboBox combo, params Button[] buttons)
+    {
+        var bar = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
+        bar.Children.Add(new TextBlock { Text = label, Style = (Style)Application.Current.FindResource("FieldLabel"), Width = 48 });
+        bar.Children.Add(combo);
+        foreach (var b in buttons) bar.Children.Add(b);
+        return bar;
     }
 
     private static Button MakeButton(string text, Action onClick, string style = "BaseButton")
@@ -120,16 +117,20 @@ public sealed class TimetableEditor
         return b;
     }
 
-    private void MarkDirty() { if (!_loading) Dirty = true; }
-
-    private void RefreshBellList()
+    private void RefreshBars()
     {
         _loading = true;
+        _tables.Items.Clear();
+        foreach (var t in _draft.Timetables)
+            _tables.Items.Add(t.Id == _draft.ActiveTimetableId ? $"{t.Name}（当前）" : t.Name);
+        _tables.SelectedIndex = _draft.Timetables.IndexOf(_tt);
+        _useTable.IsEnabled = _tt.Id != _draft.ActiveTimetableId;
+
         _bells.Items.Clear();
-        foreach (var b in _draft.Bells)
-            _bells.Items.Add(b.Id == _draft.ActiveBellId ? $"{b.Name}（使用中）" : b.Name);
-        _bells.SelectedIndex = _draft.Bells.IndexOf(_bell);
-        _useBtn.IsEnabled = _bell.Id != _draft.ActiveBellId;
+        foreach (var b in _tt.Bells)
+            _bells.Items.Add(b.Id == _tt.ActiveBellId ? $"{b.Name}（使用中）" : b.Name);
+        _bells.SelectedIndex = _tt.Bells.IndexOf(_bell);
+        _useBell.IsEnabled = _bell.Id != _tt.ActiveBellId;
         _loading = false;
     }
 
@@ -137,161 +138,258 @@ public sealed class TimetableEditor
 
     private void BuildGrid()
     {
-        _loading = true;
         _grid.Children.Clear();
         _grid.RowDefinitions.Clear();
         _grid.ColumnDefinitions.Clear();
-        _rows.Clear();
+        _timeButtons.Clear();
+        _tt.Normalize();
 
-        _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
-        _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
-        _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
-        for (int d = 0; d < 7; d++) _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(d < 5 ? 100 : 86) });
-
+        int[] widths = { 90, 84, 84, 100, 100, 100, 100, 100, 86, 86 };
+        foreach (var w in widths) _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(w) });
         _grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         string[] heads = { "节次", "上课", "下课", "周一", "周二", "周三", "周四", "周五", "周六", "周日" };
         for (int c = 0; c < heads.Length; c++)
-        {
-            var t = new TextBlock
+            Put(0, c, new TextBlock
             {
                 Text = heads[c],
                 FontSize = 14,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = (Brush)Application.Current.FindResource("InkSoft"),
+                Foreground = R("InkSoft"),
                 Margin = new Thickness(4, 0, 4, 8),
-                HorizontalAlignment = c == 0 ? HorizontalAlignment.Left : HorizontalAlignment.Center,
-            };
-            Grid.SetColumn(t, c);
-            _grid.Children.Add(t);
-        }
+                HorizontalAlignment = HorizontalAlignment.Center,
+            });
 
-        _draft.Normalize();
-        for (int i = 0; i < _bell.Periods.Count; i++) AddGridRow(i);
-        _loading = false;
+        var tags = _bell.Tags();
+        for (int i = 0; i < _bell.Periods.Count; i++)
+        {
+            _grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            int r = i + 1;
+            Put(r, 0, LabelBox(i, tags[i]));
+            Put(r, 1, TimeButton(i, true));
+            Put(r, 2, TimeButton(i, false));
+            for (int d = 0; d < 7; d++) Put(r, 3 + d, CellButton(i, d));
+        }
     }
 
-    private void AddGridRow(int i)
+    private void Put(int row, int col, UIElement e)
     {
-        _grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        int r = i + 1;
-        var num = new TextBlock
+        Grid.SetRow(e, row);
+        Grid.SetColumn(e, col);
+        _grid.Children.Add(e);
+    }
+
+    /// <summary>节次名输入框；空着时淡淡显示自动编号。</summary>
+    private UIElement LabelBox(int i, string autoTag)
+    {
+        var period = _bell.Periods[i];
+        var placeholder = new TextBlock
         {
-            Text = (i + 1).ToString(),
+            Text = string.IsNullOrEmpty(period.Label) ? autoTag : "",
             FontSize = 15,
-            Foreground = (Brush)Application.Current.FindResource("InkMuted"),
+            Foreground = R("InkMuted"),
+            HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(6, 0, 0, 0),
+            IsHitTestVisible = false,
         };
-        Grid.SetRow(num, r);
-        _grid.Children.Add(num);
-
-        var rb = new RowBoxes
+        var box = new TextBox
         {
-            Start = Cell(_bell.Periods[i].Start.ToString("HH:mm"), r, 1, false),
-            End = Cell(_bell.Periods[i].End.ToString("HH:mm"), r, 2, false),
-        };
-        for (int d = 0; d < 7; d++)
-            rb.Days[d] = Cell(_draft.Timetable[i][d], r, 3 + d, true);
-        _rows.Add(rb);
-    }
-
-    private TextBox Cell(string text, int row, int col, bool multi)
-    {
-        var tb = new TextBox
-        {
-            Text = text,
-            Margin = new Thickness(3),
+            Text = period.Label ?? "",
+            MaxLength = Period.MaxLabelLength,
             FontSize = 15,
-            AcceptsReturn = multi,
-            TextWrapping = multi ? TextWrapping.Wrap : TextWrapping.NoWrap,
             HorizontalContentAlignment = HorizontalAlignment.Center,
-            MinHeight = 42,
+            Background = Brushes.Transparent,
+            MinHeight = 48,
+            ToolTip = "节次名，最多 4 个字；留空自动编号",
         };
-        tb.TextChanged += (_, _) => { MarkDirty(); tb.ClearValue(Control.BorderBrushProperty); tb.ClearValue(FrameworkElement.ToolTipProperty); };
-        Grid.SetRow(tb, row);
-        Grid.SetColumn(tb, col);
-        _grid.Children.Add(tb);
-        return tb;
-    }
-
-    private void Flag(TextBox tb, string message)
-    {
-        tb.BorderBrush = _errBrush;
-        tb.BorderThickness = new Thickness(2);
-        tb.ToolTip = message;
-    }
-
-    // ---------- 读取 / 校验 ----------
-
-    private bool CollectTimes(out string error)
-    {
-        var errors = new List<string>();
-        var periods = new List<Period>();
-        for (int i = 0; i < _rows.Count; i++)
+        box.TextChanged += (_, _) =>
         {
-            var rb = _rows[i];
-            bool ok1 = TimetableImporter.TryParseTime(rb.Start.Text, out var s);
-            bool ok2 = TimetableImporter.TryParseTime(rb.End.Text, out var e);
-            if (!ok1) { Flag(rb.Start, "写成 07:40 这样"); errors.Add($"第{i + 1}节上课时间“{rb.Start.Text}”看不懂"); }
-            if (!ok2) { Flag(rb.End, "写成 08:20 这样"); errors.Add($"第{i + 1}节下课时间“{rb.End.Text}”看不懂"); }
-            if (ok1 && ok2 && e <= s) { Flag(rb.End, "下课要晚于上课"); errors.Add($"第{i + 1}节下课时间不晚于上课时间"); }
-            if (ok1 && ok2 && periods.Count == i && i > 0 && s < periods[i - 1].End)
-            {
-                Flag(rb.Start, "和上一节重叠");
-                errors.Add($"第{i + 1}节和第{i}节时间重叠");
-            }
-            periods.Add(new Period(s, e));
-        }
-        error = string.Join("\n", errors.Take(8)) + (errors.Count > 8 ? $"\n……共 {errors.Count} 处" : "");
-        if (errors.Count > 0) return false;
-        _bell.Periods = periods;
-        return true;
+            period.Label = Period.CleanLabel(box.Text);
+            Dirty = true;
+            RefreshPlaceholders();
+        };
+        box.LostFocus += (_, _) => RefreshPlaceholders();
+        var g = new Grid { Margin = new Thickness(3) };
+        g.Children.Add(new Border { Background = Brushes.White, CornerRadius = new CornerRadius(8) });
+        g.Children.Add(placeholder);
+        g.Children.Add(box);
+        g.Tag = placeholder;
+        return g;
     }
 
-    private void CollectCells()
+    /// <summary>改了某一节的名称后，后面自动编号要跟着变。</summary>
+    private void RefreshPlaceholders()
     {
-        _draft.Normalize();
-        for (int i = 0; i < _rows.Count; i++)
-            for (int d = 0; d < 7; d++)
-                _draft.Timetable[i][d] = CellParser.Clean(_rows[i].Days[d].Text);
+        var tags = _bell.Tags();
+        foreach (var child in _grid.Children.OfType<Grid>())
+        {
+            int row = Grid.GetRow(child) - 1;
+            if (Grid.GetColumn(child) != 0 || row < 0 || row >= tags.Count || child.Tag is not TextBlock ph) continue;
+            ph.Text = string.IsNullOrEmpty(_bell.Periods[row].Label) ? tags[row] : "";
+        }
     }
 
-    private List<string> ValidateCells()
+    private Button TimeButton(int i, bool start)
+    {
+        var p = _bell.Periods[i];
+        var b = new Button
+        {
+            Content = (start ? p.Start : p.End).ToString("HH:mm"),
+            Margin = new Thickness(3),
+            MinHeight = 48,
+            MinWidth = 0,
+            Padding = new Thickness(0),
+            FontSize = 16,
+            Background = Brushes.White,
+        };
+        b.Click += (_, _) =>
+        {
+            var tag = ScheduleEngine.PeriodName(_bell.Tags()[i]);
+            var initial = start ? p.Start : p.End;
+            if (!start && p.End <= p.Start) initial = p.Start.Add(TypicalLength(i));
+            var v = TimePickerDialog.Ask($"{tag} {(start ? "上课" : "下课")}", initial);
+            if (v == null) return;
+            if (start)
+            {
+                // 改上课时间时，下课时间跟着平移，保持课长不变
+                var len = p.End - p.Start;
+                p.Start = v.Value;
+                if (len > TimeSpan.Zero) p.End = p.Start.Add(len);
+            }
+            else p.End = v.Value;
+            Dirty = true;
+            BuildGrid();
+            ValidateTimes(_bell, mark: true);
+        };
+        b.Tag = (i, start);
+        _timeButtons.Add(b);
+        return b;
+    }
+
+    private TimeSpan TypicalLength(int i)
+    {
+        for (int k = i - 1; k >= 0; k--)
+        {
+            var len = _bell.Periods[k].End - _bell.Periods[k].Start;
+            if (len > TimeSpan.Zero) return len;
+        }
+        return TimeSpan.FromMinutes(40);
+    }
+
+    private Button CellButton(int i, int d)
+    {
+        var raw = _tt.Grid[i][d];
+        var p = CellParser.Parse(raw);
+        object content;
+        if (p.HasParity)
+        {
+            var sp = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
+            sp.Children.Add(ParityLine("单", p.Odd));
+            sp.Children.Add(ParityLine("双", p.Even));
+            content = sp;
+        }
+        else content = new TextBlock { Text = p.Odd, FontSize = 15, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center };
+
+        var b = new Button
+        {
+            Content = content,
+            Margin = new Thickness(3),
+            MinHeight = 48,
+            MinWidth = 0,
+            Padding = new Thickness(4, 4, 4, 4),
+            Background = raw.Length == 0 ? R("SurfaceAlt") : Brushes.White,
+            BorderBrush = raw.Length == 0 ? Brushes.Transparent : R("FieldEdge"),
+        };
+        b.Click += (_, _) =>
+        {
+            var tag = ScheduleEngine.PeriodName(_bell.Tags()[i]);
+            var v = CellEditorDialog.Ask($"{ScheduleEngine.WeekdayName(d + 1)} · {tag}", _tt.Grid[i][d], _tt.UsedSubjects());
+            if (v == null || v == _tt.Grid[i][d]) return;
+            _tt.Grid[i][d] = v;
+            Dirty = true;
+            BuildGrid();
+        };
+        return b;
+    }
+
+    private static UIElement ParityLine(string tag, string? subject)
+    {
+        var sp = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+        sp.Children.Add(new Border
+        {
+            Background = R(tag == "单" ? "AccentFill" : "WarnFill"),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(4, 0, 4, 1),
+            Margin = new Thickness(0, 1, 5, 1),
+            Child = new TextBlock { Text = tag, FontSize = 11, Foreground = R(tag == "单" ? "AccentInk" : "WarnInk") },
+        });
+        sp.Children.Add(new TextBlock
+        {
+            Text = string.IsNullOrEmpty(subject) ? "—" : subject,
+            FontSize = 13,
+            Foreground = string.IsNullOrEmpty(subject) ? R("InkMuted") : R("Ink"),
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        return sp;
+    }
+
+    // ---------- 校验与保存 ----------
+
+    /// <summary>检查一套作息的时间：下课晚于上课、前后不重叠。返回问题描述。</summary>
+    private List<string> ValidateTimes(BellSchedule bell, bool mark)
     {
         var errors = new List<string>();
-        for (int i = 0; i < _rows.Count; i++)
-            for (int d = 0; d < 7; d++)
+        var bad = new HashSet<(int, bool)>();
+        var tags = bell.Tags();
+        for (int i = 0; i < bell.Periods.Count; i++)
+        {
+            var p = bell.Periods[i];
+            var name = ScheduleEngine.PeriodName(tags[i]);
+            if (p.End <= p.Start) { errors.Add($"{name}下课时间不晚于上课时间"); bad.Add((i, false)); }
+            if (i > 0 && p.Start < bell.Periods[i - 1].End)
             {
-                var p = CellParser.Parse(_rows[i].Days[d].Text);
-                if (p.Error != null)
+                errors.Add($"{name}和上一节时间重叠");
+                bad.Add((i, true));
+            }
+        }
+        if (mark && bell == _bell)
+        {
+            foreach (var b in _timeButtons)
+            {
+                var key = ((int, bool))b.Tag;
+                if (bad.Contains(key))
                 {
-                    Flag(_rows[i].Days[d], p.Error);
-                    errors.Add($"第{i + 1}节{ScheduleEngine.WeekdayName(d + 1)}：{p.Error}");
+                    b.BorderBrush = R("Warn");
+                    b.BorderThickness = new Thickness(2);
+                    b.Foreground = R("WarnInk");
                 }
             }
+        }
         return errors;
     }
 
     public bool TrySave()
     {
-        bool timesOk = CollectTimes(out var timeErr);
-        var cellErrs = ValidateCells();
-        if (!timesOk || cellErrs.Count > 0)
+        var all = new List<string>();
+        foreach (var t in _draft.Timetables)
+            foreach (var b in t.Bells)
+                foreach (var e in ValidateTimes(b, mark: true))
+                    all.Add(_draft.Timetables.Count > 1 || t.Bells.Count > 1 ? $"“{t.Name}”{b.Name}：{e}" : e);
+        if (all.Count > 0)
         {
-            var all = string.Join("\n", new[] { timeErr }.Where(s => s.Length > 0).Concat(cellErrs.Take(8)));
-            ChoiceDialog.Info("有几处需要改正（已标红）", all);
+            ChoiceDialog.Info("时间有冲突（已标红）", string.Join("\n", all.Take(8)) + (all.Count > 8 ? $"\n……共 {all.Count} 处" : ""));
             return false;
         }
-        CollectCells();
 
-        // 去掉所有作息都用不到的多余行
-        int need = _draft.Bells.Max(b => b.Periods.Count);
-        if (_draft.Timetable.Count > need) _draft.Timetable.RemoveRange(need, _draft.Timetable.Count - need);
+        foreach (var t in _draft.Timetables)
+        {
+            int need = t.Bells.Max(b => b.Periods.Count);
+            if (t.Grid.Count > need) t.Grid.RemoveRange(need, t.Grid.Count - need);
+        }
 
         var data = _app.Data;
-        data.Bells = _draft.Bells;
-        data.ActiveBellId = _draft.ActiveBellId;
-        data.Timetable = _draft.Timetable;
+        data.Timetables = _draft.Timetables;
+        data.ActiveTimetableId = _draft.ActiveTimetableId;
+        data.Normalize();
         Dirty = false;
         _app.Commit("编辑课表与作息");
         return true;
@@ -308,54 +406,122 @@ public sealed class TimetableEditor
 
     private void AddRow()
     {
-        if (!CollectTimes(out var err)) { ChoiceDialog.Info("先改正时间", err); return; }
-        CollectCells();
         var last = _bell.Periods.LastOrDefault();
-        var start = last == null ? new TimeOnly(8, 0) : last.End.AddMinutes(10);
-        var end = start.AddMinutes(40);
-        if (end < start) end = new TimeOnly(23, 59);
+        TimeOnly start, end;
+        if (last == null)
+        {
+            start = new TimeOnly(8, 0);
+            end = start.AddMinutes(40);
+        }
+        else
+        {
+            var gap = _bell.Periods.Count >= 2 ? _bell.Periods[^1].Start - _bell.Periods[^2].End : TimeSpan.FromMinutes(10);
+            if (gap <= TimeSpan.Zero || gap > TimeSpan.FromMinutes(30)) gap = TimeSpan.FromMinutes(10);
+            start = last.End.Add(gap);
+            end = start.Add(TypicalLength(_bell.Periods.Count));
+            if (end < start) end = new TimeOnly(23, 59);
+        }
         _bell.Periods.Add(new Period(start, end));
-        _draft.Normalize();
-        _loading = true;
-        AddGridRow(_bell.Periods.Count - 1);
-        _loading = false;
+        _tt.Normalize();
         Dirty = true;
+        BuildGrid();
     }
 
     private void RemoveRow()
     {
         if (_bell.Periods.Count == 0) return;
         int i = _bell.Periods.Count - 1;
-        CollectCells();
-        bool hasContent = _draft.Timetable.Count > i && _draft.Timetable[i].Any(c => c.Length > 0);
-        if (hasContent && !ChoiceDialog.Confirm($"删除第{i + 1}节？", "这一节已经填了课，会一起删掉。", "删除")) return;
-        CollectTimes(out _);
-        _bell.Periods.RemoveAt(Math.Min(i, _bell.Periods.Count - 1));
-        if (_draft.Bells.All(b => b.Periods.Count <= i) && _draft.Timetable.Count > i) _draft.Timetable.RemoveAt(i);
-        BuildGrid();
+        bool hasContent = _tt.Grid.Count > i && _tt.Grid[i].Any(c => c.Length > 0);
+        var name = ScheduleEngine.PeriodName(_bell.Tags()[i]);
+        if (hasContent && !ChoiceDialog.Confirm($"删除{name}？", "这一节已经填了课，会一起删掉。", "删除")) return;
+        _bell.Periods.RemoveAt(i);
+        if (_tt.Bells.All(b => b.Periods.Count <= i) && _tt.Grid.Count > i) _tt.Grid.RemoveAt(i);
         Dirty = true;
+        BuildGrid();
+    }
+
+    // ---------- 多张课表 ----------
+
+    private void UseTable()
+    {
+        _draft.ActiveTimetableId = _tt.Id;
+        Dirty = true;
+        RefreshBars();
+    }
+
+    private void NewTable()
+    {
+        var name = TextInputDialog.Ask("新课表的名称", "期中考试");
+        if (string.IsNullOrWhiteSpace(name)) return;
+        var t = new Timetable { Name = name.Trim() };
+        var bell = _bell.Clone(_bell.Name); // 沿用当前作息时间
+        bell.Id = Guid.NewGuid().ToString("N");
+        t.Bells.Add(bell);
+        t.ActiveBellId = bell.Id;
+        t.Normalize();
+        _draft.Timetables.Add(t);
+        _tt = t;
+        _bell = bell;
+        Dirty = true;
+        RefreshBars();
+        BuildGrid();
+    }
+
+    private void CopyTable()
+    {
+        var name = TextInputDialog.Ask("复制出的课表名称", $"{_tt.Name} 副本");
+        if (string.IsNullOrWhiteSpace(name)) return;
+        var t = _tt.Clone(name.Trim());
+        _draft.Timetables.Add(t);
+        _tt = t;
+        _bell = t.ActiveBell;
+        Dirty = true;
+        RefreshBars();
+        BuildGrid();
+    }
+
+    private void RenameTable()
+    {
+        var name = TextInputDialog.Ask("课表名称", _tt.Name);
+        if (string.IsNullOrWhiteSpace(name)) return;
+        _tt.Name = name.Trim();
+        Dirty = true;
+        RefreshBars();
+    }
+
+    private void DeleteTable()
+    {
+        if (_draft.Timetables.Count <= 1) { ChoiceDialog.Info("至少要保留一张课表", null); return; }
+        int days = _draft.DayOverrides.Count(o => o.Kind == DayOverrideKind.UseTimetable && o.TimetableId == _tt.Id);
+        var body = days > 0 ? $"有 {days} 天的日期调整用到这张课表，会一起删除。" : null;
+        if (!ChoiceDialog.Confirm($"删除课表“{_tt.Name}”？", body, "删除")) return;
+        _draft.Timetables.Remove(_tt);
+        if (_draft.ActiveTimetableId == _tt.Id) _draft.ActiveTimetableId = _draft.Timetables[0].Id;
+        _tt = _draft.Active;
+        _bell = _tt.ActiveBell;
+        Dirty = true;
+        RefreshBars();
+        BuildGrid();
     }
 
     // ---------- 多套作息 ----------
 
-    private void UseSelected()
+    private void UseBell()
     {
-        _draft.ActiveBellId = _bell.Id;
+        _tt.ActiveBellId = _bell.Id;
         Dirty = true;
-        RefreshBellList();
+        RefreshBars();
     }
 
     private void CopyBell()
     {
-        if (!CollectTimes(out var err)) { ChoiceDialog.Info("先改正时间", err); return; }
-        CollectCells();
-        var name = TextInputDialog.Ask("新作息的名称", _draft.Bells.Count == 1 ? "冬季作息" : $"{_bell.Name} 副本");
+        var name = TextInputDialog.Ask("新作息的名称", _tt.Bells.Count == 1 ? "冬季作息" : $"{_bell.Name} 副本");
         if (string.IsNullOrWhiteSpace(name)) return;
         var copy = _bell.Clone(name.Trim());
-        _draft.Bells.Add(copy);
+        _tt.Bells.Add(copy);
         _bell = copy;
         Dirty = true;
-        RefreshBellList();
+        RefreshBars();
         BuildGrid();
     }
 
@@ -365,19 +531,18 @@ public sealed class TimetableEditor
         if (string.IsNullOrWhiteSpace(name)) return;
         _bell.Name = name.Trim();
         Dirty = true;
-        RefreshBellList();
+        RefreshBars();
     }
 
     private void DeleteBell()
     {
-        if (_draft.Bells.Count <= 1) { ChoiceDialog.Info("至少要保留一套作息", null); return; }
+        if (_tt.Bells.Count <= 1) { ChoiceDialog.Info("每张课表至少要保留一套作息", null); return; }
         if (!ChoiceDialog.Confirm($"删除“{_bell.Name}”？", null, "删除")) return;
-        CollectCells();
-        _draft.Bells.Remove(_bell);
-        if (_draft.ActiveBellId == _bell.Id) _draft.ActiveBellId = _draft.Bells[0].Id;
-        _bell = _draft.ActiveBell;
+        _tt.Bells.Remove(_bell);
+        if (_tt.ActiveBellId == _bell.Id) _tt.ActiveBellId = _tt.Bells[0].Id;
+        _bell = _tt.ActiveBell;
         Dirty = true;
-        RefreshBellList();
+        RefreshBars();
         BuildGrid();
     }
 }
@@ -399,7 +564,7 @@ public sealed class TextInputDialog : Window
         Topmost = true;
         FontFamily = (FontFamily)Application.Current.FindResource("UiFont");
 
-        _box = new TextBox { Text = value, Margin = new Thickness(0, 14, 0, 18), FontSize = 16 };
+        _box = new TextBox { Text = value, Margin = new Thickness(0, 14, 0, 18), FontSize = 16, MaxLength = 20 };
         var ok = new Button { Content = "确定", Style = (Style)Application.Current.FindResource("PrimaryButton") };
         var cancel = new Button { Content = "取消", Margin = new Thickness(0, 0, 10, 0) };
         ok.Click += (_, _) => { _ok = true; Close(); };

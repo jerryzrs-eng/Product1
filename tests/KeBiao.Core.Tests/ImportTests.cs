@@ -18,7 +18,10 @@ public class ImportTests : IDisposable
         Assert.True(r.Ok, string.Join("\n", r.Errors));
         Assert.Equal("26级7班", r.ClassName);
         Assert.Equal(new DateOnly(2026, 9, 1), r.TermStart);
-        Assert.Equal(11, r.Periods.Count);
+        Assert.Equal(12, r.Periods.Count);
+        Assert.Equal("早间", r.Periods[0].Label);
+        Assert.Null(r.Periods[1].Label);
+        Assert.Equal("晚自习一", r.Periods[11].Label);
         Assert.Equal(new TimeOnly(10, 25), r.Periods[3].Start);
         Assert.Equal("单:音乐\n双:美术", r.Timetable[6][4]);
         Assert.Equal("", r.Timetable[0][5]);
@@ -89,17 +92,42 @@ public class ImportTests : IDisposable
     }
 
     [Fact]
-    public void ApplyReplacesTimetableAndKeepsOtherBells()
+    public void ApplyIntoExistingTimetable()
     {
         var data = SampleData.Create();
-        var winter = data.Bells[0].Clone("冬季作息");
-        data.Bells.Add(winter);
-        var r = TimetableImporter.FromText("时间,周一,周二,周三,周四,周五\n08:00-08:40,语文,,,,\n");
-        TimetableImporter.Apply(data, r, winter.Id, null, true, true);
-        Assert.Equal(winter.Id, data.ActiveBellId);
-        Assert.Single(winter.Periods);
-        Assert.Equal(11, data.Bells[0].Periods.Count);
-        Assert.Equal("语文", ScheduleEngine.GetDayPlan(data, new DateOnly(2026, 11, 2)).Lessons.Single().Name);
+        var winter = data.Active.Bells[0].Clone("冬季作息");
+        data.Active.Bells.Add(winter);
+        data.Active.ActiveBellId = winter.Id;
+        var r = TimetableImporter.FromText("节次,时间,周一,周二,周三,周四,周五\n早读,07:30-08:00,语文,,,,\n第一节,08:00-08:40,数学,,,,\n");
+        Assert.True(r.Ok, string.Join("\n", r.Errors));
+        TimetableImporter.Apply(data, r, data.Active.Id, null, true, true, true);
+        Assert.Single(data.Timetables);
+        Assert.Equal(2, winter.Periods.Count);
+        Assert.Equal("早读", winter.Periods[0].Label);
+        Assert.Null(winter.Periods[1].Label);
+        Assert.Equal(12, data.Active.Bells[0].Periods.Count); // 夏季作息不动
+        Assert.Equal("数学", ScheduleEngine.GetDayPlan(data, new DateOnly(2026, 11, 2)).Lessons[1].Name);
+    }
+
+    [Fact]
+    public void ApplyAsNewTimetable()
+    {
+        var data = SampleData.Create();
+        var oldId = data.ActiveTimetableId;
+        var r = TimetableImporter.FromText("时间,周一,周二,周三,周四,周五\n08:00-10:00,语文,,,,\n");
+        var tt = TimetableImporter.Apply(data, r, null, "期中考试", false, false, false);
+        Assert.Equal(2, data.Timetables.Count);
+        Assert.Equal("期中考试", tt.Name);
+        Assert.Equal(oldId, data.ActiveTimetableId);
+    }
+
+    [Fact]
+    public void LongLabelIsTrimmedWithWarning()
+    {
+        var r = TimetableImporter.FromText("节次,时间,周一,周二,周三,周四,周五\n晚自习第一节,18:30-19:10,自习,,,,\n");
+        Assert.True(r.Ok);
+        Assert.Equal("晚自习第", r.Periods[0].Label);
+        Assert.Contains(r.Warnings, w => w.Message.Contains("4 个字"));
     }
 }
 

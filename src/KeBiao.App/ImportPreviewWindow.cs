@@ -13,6 +13,7 @@ public sealed class ImportPreviewWindow : Window
     private readonly AppController _app;
     private readonly ImportResult _r;
     private readonly ComboBox _target = new() { Width = 260 };
+    private readonly CheckBox _makeActive = new() { Content = "设为当前课表", IsChecked = true, Margin = new Thickness(20, 0, 0, 0) };
     private readonly CheckBox _useClass = new();
     private readonly CheckBox _useTerm = new();
 
@@ -61,12 +62,16 @@ public sealed class ImportPreviewWindow : Window
         if (_r.Ok)
         {
             var opts = new StackPanel { Orientation = Orientation.Horizontal };
-            opts.Children.Add(new TextBlock { Text = "作息时间写入", Style = (Style)Application.Current.FindResource("FieldLabel"), Margin = new Thickness(0, 0, 10, 0) });
-            foreach (var b in _app.Data.Bells)
-                _target.Items.Add(b.Id == _app.Data.ActiveBellId ? $"{b.Name}（使用中）" : b.Name);
-            _target.Items.Add("新建一套作息");
-            _target.SelectedIndex = Math.Max(0, _app.Data.Bells.FindIndex(b => b.Id == _app.Data.ActiveBellId));
+            opts.Children.Add(new TextBlock { Text = "导入到", Style = (Style)Application.Current.FindResource("FieldLabel"), Margin = new Thickness(0, 0, 10, 0) });
+            var data = _app.Data;
+            foreach (var t in data.Timetables)
+                _target.Items.Add(t.Id == data.ActiveTimetableId ? $"{t.Name}（使用中）" : t.Name);
+            _target.Items.Add("新建课表");
+            _target.SelectedIndex = Math.Max(0, data.Timetables.FindIndex(t => t.Id == data.ActiveTimetableId));
             opts.Children.Add(_target);
+            _target.SelectionChanged += (_, _) => UpdateMakeActive();
+            opts.Children.Add(_makeActive);
+            UpdateMakeActive();
             if (!string.IsNullOrWhiteSpace(_r.ClassName) && _r.ClassName != _app.Data.ClassName)
             {
                 _useClass.Content = $"班级改为“{_r.ClassName}”";
@@ -113,7 +118,8 @@ public sealed class ImportPreviewWindow : Window
     private UIElement BuildTable()
     {
         var g = new Grid();
-        int[] widths = { 44, 130, 104, 104, 104, 104, 104, 92, 92 };
+        var tags = new BellSchedule { Periods = _r.Periods }.Tags();
+        int[] widths = { 72, 130, 104, 104, 104, 104, 104, 92, 92 };
         foreach (var w in widths) g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(w) });
         g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         string[] heads = { "节次", "时间", "周一", "周二", "周三", "周四", "周五", "周六", "周日" };
@@ -124,7 +130,7 @@ public sealed class ImportPreviewWindow : Window
         {
             g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             int row = i + 1;
-            Put(g, row, 0, new TextBlock { Text = (i + 1).ToString(), Foreground = R("InkMuted"), FontSize = 14, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) });
+            Put(g, row, 0, new TextBlock { Text = tags[i], Foreground = R("InkMuted"), FontSize = 14, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) });
             var p = _r.Periods[i];
             string time = _r.CellErrors.ContainsKey((i, 0)) && p.Start == default && p.End == default ? "？" : $"{p.Start:HH\\:mm}–{p.End:HH\\:mm}";
             Put(g, row, 1, Box(time, _r.CellErrors.TryGetValue((i, 0), out var te) ? te : null));
@@ -165,18 +171,30 @@ public sealed class ImportPreviewWindow : Window
         g.Children.Add(e);
     }
 
+    private string? TargetId =>
+        _target.SelectedIndex >= 0 && _target.SelectedIndex < _app.Data.Timetables.Count ? _app.Data.Timetables[_target.SelectedIndex].Id : null;
+
+    /// <summary>导入到正在使用的课表时，它本来就是当前课表，不需要这个选项。</summary>
+    private void UpdateMakeActive()
+    {
+        bool isActive = TargetId == _app.Data.ActiveTimetableId;
+        _makeActive.Visibility = isActive ? Visibility.Collapsed : Visibility.Visible;
+        if (TargetId == null) _makeActive.IsChecked = _app.Data.IsEmpty;
+    }
+
     private void Apply()
     {
         var data = _app.Data;
-        string? targetId = _target.SelectedIndex >= 0 && _target.SelectedIndex < data.Bells.Count ? data.Bells[_target.SelectedIndex].Id : null;
+        var targetId = TargetId;
         string? newName = null;
         if (targetId == null)
         {
-            newName = TextInputDialog.Ask("新作息的名称", "导入的作息");
+            newName = TextInputDialog.Ask("新课表的名称", data.IsEmpty ? "常规课表" : "新课表");
             if (newName == null) return;
         }
-        TimetableImporter.Apply(data, _r, targetId, newName, _useClass.IsChecked == true, _useTerm.IsChecked == true);
-        _app.Commit("导入课表");
+        bool makeActive = targetId == data.ActiveTimetableId || _makeActive.IsChecked == true;
+        var tt = TimetableImporter.Apply(data, _r, targetId, newName, makeActive, _useClass.IsChecked == true, _useTerm.IsChecked == true);
+        _app.Commit($"导入课表“{tt.Name}”");
         DialogResult = true;
     }
 }

@@ -201,7 +201,7 @@ public sealed class AppController
 
     public void SetFontLevel(int level)
     {
-        Ui.FontLevel = Math.Clamp(level, 0, 2);
+        Ui.FontLevel = Math.Clamp(level, -2, 2);
         Vm.Scale = Ui.Scale;
         SaveUi();
         Window?.Dispatcher.BeginInvoke(() => Window?.EnsureOnScreen(), DispatcherPriority.Loaded);
@@ -233,10 +233,12 @@ public sealed class AppController
         if (a == b) return;
         var today = DateOnly.FromDateTime(Now);
         var plan = ScheduleEngine.GetDayPlan(Data, today);
+        var tags = plan.Timetable.ActiveBell.Tags();
         string Name(int i) => plan.Lessons.FirstOrDefault(l => l.Index == i)?.Name ?? "空";
+        string P(int i) => i < tags.Count ? ScheduleEngine.PeriodName(tags[i]) : $"第{i + 1}节";
         var weekday = ScheduleEngine.WeekdayName(plan.EffectiveWeekday);
         int choice = ChoiceDialog.Ask(
-            $"第{a + 1}节 {Name(a)} ⇄ 第{b + 1}节 {Name(b)}",
+            $"{P(a)} {Name(a)} ⇄ {P(b)} {Name(b)}",
             null,
             "仅今天",
             $"以后每个{weekday}都这样");
@@ -244,20 +246,39 @@ public sealed class AppController
         if (choice == 0)
         {
             ScheduleEngine.SwapForDay(Data, today, a, b);
-            Commit($"调课：第{a + 1}节⇄第{b + 1}节（仅{today.Month}月{today.Day}日）");
+            Commit($"调课：{P(a)}⇄{P(b)}（仅{today.Month}月{today.Day}日）");
         }
         else
         {
             ScheduleEngine.SwapPermanent(Data, today, a, b);
-            Commit($"调课：{weekday}第{a + 1}节⇄第{b + 1}节（以后每周）");
+            Commit($"调课：{weekday}{P(a)}⇄{P(b)}（以后每周）");
         }
     }
 
-    public void SetDay(DateOnly date, DayOverrideKind kind, int weekday = 1)
+    public string DescribeOverride(DayOverrideKind kind, int weekday, string? timetableId) => kind switch
     {
-        ScheduleEngine.SetOverride(Data, date, kind, weekday);
-        var label = kind == DayOverrideKind.Holiday ? "放假" : $"按{ScheduleEngine.WeekdayName(weekday)}上课";
-        Commit($"{date.Month}月{date.Day}日{label}");
+        DayOverrideKind.Holiday => "放假",
+        DayOverrideKind.UseTimetable => $"使用“{Data.FindTimetable(timetableId)?.Name ?? "?"}”",
+        _ => $"按{ScheduleEngine.WeekdayName(weekday)}上课",
+    };
+
+    public void SetDay(DateOnly date, DayOverrideKind kind, int weekday = 1, string? timetableId = null) =>
+        SetDays(date, date, kind, weekday, timetableId);
+
+    public void SetDays(DateOnly from, DateOnly to, DayOverrideKind kind, int weekday = 1, string? timetableId = null)
+    {
+        if (to < from) (from, to) = (to, from);
+        ScheduleEngine.SetOverrideRange(Data, from, to, kind, weekday, timetableId);
+        var label = DescribeOverride(kind, weekday, timetableId);
+        var range = from == to ? $"{from.Month}月{from.Day}日" : $"{from.Month}月{from.Day}日–{to.Month}月{to.Day}日";
+        Commit($"{range}{label}");
+    }
+
+    public void SwitchTimetable(string id)
+    {
+        if (Data.ActiveTimetableId == id || Data.FindTimetable(id) is not { } t) return;
+        Data.ActiveTimetableId = id;
+        Commit($"切换到课表“{t.Name}”");
     }
 
     public void ClearDay(DateOnly date)
@@ -308,6 +329,18 @@ public sealed class AppController
         var holiday = new MenuItem { Header = "今天放假", IsCheckable = true, IsChecked = ov?.Kind == DayOverrideKind.Holiday };
         holiday.Click += (_, _) => SetDay(today, DayOverrideKind.Holiday);
         day.Items.Add(holiday);
+        foreach (var t in Data.Timetables.Where(t => t.Id != Data.ActiveTimetableId))
+        {
+            var id = t.Id;
+            var item = new MenuItem
+            {
+                Header = $"今天用“{t.Name}”",
+                IsCheckable = true,
+                IsChecked = ov?.Kind == DayOverrideKind.UseTimetable && ov.TimetableId == id,
+            };
+            item.Click += (_, _) => SetDay(today, DayOverrideKind.UseTimetable, 1, id);
+            day.Items.Add(item);
+        }
         day.Items.Add(new Separator());
         var reset = new MenuItem { Header = "恢复正常", IsEnabled = ov != null || hasSwap };
         reset.Click += (_, _) => ClearDay(today);
@@ -316,6 +349,19 @@ public sealed class AppController
         other.Click += (_, _) => OpenSettings("dates");
         day.Items.Add(other);
         menu.Items.Add(day);
+
+        if (Data.Timetables.Count > 1)
+        {
+            var switcher = new MenuItem { Header = "切换课表" };
+            foreach (var t in Data.Timetables)
+            {
+                var id = t.Id;
+                var item = new MenuItem { Header = t.Name, IsCheckable = true, IsChecked = t.Id == Data.ActiveTimetableId };
+                item.Click += (_, _) => SwitchTimetable(id);
+                switcher.Items.Add(item);
+            }
+            menu.Items.Add(switcher);
+        }
 
         var edit = new MenuItem { Header = Vm.EditMode ? "结束拖动调课" : "拖动调课" };
         edit.Click += (_, _) => SetEditMode(!Vm.EditMode);

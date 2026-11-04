@@ -1,10 +1,6 @@
 namespace KeBiao.Core;
 
-public sealed record Lesson(int Index, string Name, TimeOnly Start, TimeOnly End)
-{
-    /// <summary>显示用的节次号（从 1 开始）。</summary>
-    public int Number => Index + 1;
-}
+public sealed record Lesson(int Index, string Tag, string Name, TimeOnly Start, TimeOnly End);
 
 public sealed record DayPlan(
     DateOnly Date,
@@ -13,6 +9,7 @@ public sealed record DayPlan(
     int? WeekNumber,
     bool IsOddWeek,
     DayOverride? Override,
+    Timetable Timetable,
     bool HasSubjectOverride,
     IReadOnlyList<Lesson> Lessons);
 
@@ -89,17 +86,41 @@ public static class ScheduleEngine
     public static DayOverride? GetOverride(ScheduleData data, DateOnly date) =>
         data.DayOverrides.LastOrDefault(o => o.Date == date);
 
-    public static void SetOverride(ScheduleData data, DateOnly date, DayOverrideKind kind, int weekday = 1)
+    public static void SetOverride(ScheduleData data, DateOnly date, DayOverrideKind kind, int weekday = 1, string? timetableId = null)
     {
         data.DayOverrides.RemoveAll(o => o.Date == date);
-        data.DayOverrides.Add(new DayOverride { Date = date, Kind = kind, Weekday = weekday });
+        data.DayOverrides.Add(new DayOverride
+        {
+            Date = date,
+            Kind = kind,
+            Weekday = weekday,
+            TimetableId = kind == DayOverrideKind.UseTimetable ? timetableId : null,
+        });
         data.DayOverrides.Sort((a, b) => a.Date.CompareTo(b.Date));
+    }
+
+    /// <summary>给一段日期（含首尾）设置同样的调整。</summary>
+    public static int SetOverrideRange(ScheduleData data, DateOnly from, DateOnly to, DayOverrideKind kind, int weekday = 1, string? timetableId = null)
+    {
+        if (to < from) (from, to) = (to, from);
+        int n = 0;
+        for (var d = from; d <= to; d = d.AddDays(1), n++)
+            SetOverride(data, d, kind, weekday, timetableId);
+        return n;
     }
 
     public static void ClearOverride(ScheduleData data, DateOnly date)
     {
         data.DayOverrides.RemoveAll(o => o.Date == date);
         data.SubjectOverrides.RemoveAll(o => o.Date == date);
+    }
+
+    /// <summary>这一天用哪张课表。</summary>
+    public static Timetable TimetableFor(ScheduleData data, DateOnly date)
+    {
+        var ov = GetOverride(data, date);
+        if (ov?.Kind == DayOverrideKind.UseTimetable && data.FindTimetable(ov.TimetableId) is { } t) return t;
+        return data.Active;
     }
 
     /// <summary>这一天按课表本来应该上的科目（按节次，含空节），不含临时换课。</summary>
@@ -109,11 +130,12 @@ public static class ScheduleEngine
         holiday = ov?.Kind == DayOverrideKind.Holiday;
         weekday = ov?.Kind == DayOverrideKind.FollowWeekday ? Math.Clamp(ov.Weekday, 1, 7) : ToWeekday(date.DayOfWeek);
         odd = IsOddWeek(data, date);
-        var bell = data.ActiveBell;
+        var tt = TimetableFor(data, date);
+        var bell = tt.ActiveBell;
         var list = new List<string>(bell.Periods.Count);
         for (int i = 0; i < bell.Periods.Count; i++)
         {
-            string raw = i < data.Timetable.Count && data.Timetable[i].Count >= weekday ? data.Timetable[i][weekday - 1] : "";
+            string raw = i < tt.Grid.Count && tt.Grid[i].Count >= weekday ? tt.Grid[i][weekday - 1] : "";
             list.Add(holiday ? "" : CellParser.Resolve(raw, odd));
         }
         return list;
@@ -129,18 +151,20 @@ public static class ScheduleEngine
                 subjects[i] = subOv.Subjects[i] ?? "";
         }
 
-        var bell = data.ActiveBell;
+        var tt = TimetableFor(data, date);
+        var bell = tt.ActiveBell;
+        var tags = bell.Tags();
         var lessons = new List<Lesson>();
         for (int i = 0; i < bell.Periods.Count; i++)
         {
             var name = subjects[i].Trim();
             if (name.Length == 0) continue;
-            lessons.Add(new Lesson(i, name, bell.Periods[i].Start, bell.Periods[i].End));
+            lessons.Add(new Lesson(i, tags[i], name, bell.Periods[i].Start, bell.Periods[i].End));
         }
         lessons.Sort((a, b) => a.Start.CompareTo(b.Start));
 
         return new DayPlan(date, holiday, weekday, WeekNumber(data, date), odd,
-            GetOverride(data, date), subOv != null, lessons);
+            GetOverride(data, date), tt, subOv != null, lessons);
     }
 
     public static Status GetStatus(ScheduleData data, DateTime now)
@@ -199,15 +223,16 @@ public static class ScheduleEngine
         data.SubjectOverrides.Add(new DaySubjectOverride { Date = date, Subjects = subjects });
     }
 
-    /// <summary>以后每周：直接互换周课表里对应星期的两个格子（含单双周写法）。</summary>
+    /// <summary>以后每周：直接互换这一天所用课表里对应星期的两个格子（含单双周设置）。</summary>
     public static void SwapPermanent(ScheduleData data, DateOnly date, int a, int b)
     {
         if (a == b) return;
         data.Normalize();
         var plan = GetDayPlan(data, date);
+        var grid = plan.Timetable.Grid;
         int col = plan.EffectiveWeekday - 1;
-        if (a >= data.Timetable.Count || b >= data.Timetable.Count) return;
-        (data.Timetable[a][col], data.Timetable[b][col]) = (data.Timetable[b][col], data.Timetable[a][col]);
+        if (a >= grid.Count || b >= grid.Count) return;
+        (grid[a][col], grid[b][col]) = (grid[b][col], grid[a][col]);
         var existing = data.SubjectOverrides.LastOrDefault(o => o.Date == date);
         if (existing != null && a < existing.Subjects.Count && b < existing.Subjects.Count)
             (existing.Subjects[a], existing.Subjects[b]) = (existing.Subjects[b], existing.Subjects[a]);
@@ -226,4 +251,7 @@ public static class ScheduleEngine
     {
         1 => "周一", 2 => "周二", 3 => "周三", 4 => "周四", 5 => "周五", 6 => "周六", 7 => "周日", _ => "",
     };
+
+    /// <summary>界面上说“第几节”时用的名称：有自定义名用名称，否则“第3节”。</summary>
+    public static string PeriodName(string tag) => int.TryParse(tag, out var n) ? $"第{n}节" : tag;
 }
