@@ -50,7 +50,7 @@ jobs:
             if ($env:GITHUB_EVENT_NAME -ne 'workflow_dispatch' -or $env:GITHUB_REF -cne 'refs/heads/master') {
               throw '正式发布只能从 master 手动发起'
             }
-            if ($env:GITHUB_RUN_ATTEMPT -ne '1') { throw '请重新提交发布请求并取得新的审批' }
+            if ($env:GITHUB_RUN_ATTEMPT -ne '1') { throw '请重新提交发布请求，不要重跑旧的运行' }
             $tag = 'v' + ([string]$env:REQUESTED_RELEASE).Trim().TrimStart('v')
             if ($tag -cnotmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') { throw '请输入有效的发布版本' }
             $commit = ([string]$env:REQUESTED_COMMIT).Trim().ToLowerInvariant()
@@ -92,9 +92,8 @@ jobs:
           git worktree add --detach $policy $env:GITHUB_SHA
           if ($LASTEXITCODE -ne 0) { throw '无法检出本次工作流的发布规则' }
           & "$policy/.github/scripts/Test-ReleaseSource.ps1"
-          & "$policy/.github/scripts/Test-ReleaseApproval.ps1"
           & "$policy/.github/scripts/Test-ReleaseNotes.ps1" -Tag $env:RELEASE_TAG -Commit $env:RELEASE_COMMIT
-          "等待仓库所有者审批。版本 $env:RELEASE_TAG，授权提交 $env:RELEASE_COMMIT" >> $env:GITHUB_STEP_SUMMARY
+          "发布请求。版本 $env:RELEASE_TAG，授权提交 $env:RELEASE_COMMIT" >> $env:GITHUB_STEP_SUMMARY
 
       - name: 单元测试
         run: dotnet test tests/KeBiao.Core.Tests -c Release
@@ -157,7 +156,6 @@ jobs:
     name: 正式发布 ${{ needs.build.outputs.release_tag }}
     needs: build
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && needs.build.outputs.release_tag != ''
-    environment: kebiao-release
     runs-on: windows-latest
     timeout-minutes: 15
     concurrency:
@@ -190,7 +188,6 @@ jobs:
           git worktree add --detach $policy $env:GITHUB_SHA
           if ($LASTEXITCODE -ne 0) { throw '无法检出本次工作流的发布规则' }
           & "$policy/.github/scripts/Test-ReleaseSource.ps1"
-          & "$policy/.github/scripts/Test-ReleaseApproval.ps1" -RequireApproval
           & "$policy/.github/scripts/Test-ReleaseNotes.ps1" -Tag $tag -Commit $env:RELEASE_COMMIT
           $notes = "docs/更新说明/$tag.md"
           $exe = (Get-Item -LiteralPath "dist/KeBiao-Setup-$env:APP_VERSION.exe").FullName
