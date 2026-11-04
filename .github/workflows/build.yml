@@ -82,10 +82,22 @@ jobs:
         run: |
           $tag = $env:RELEASE_TAG
           $notes = "docs/更新说明/$tag.md"
-          # 标签不存在时由这一步在当前提交上创建
-          $args = @($tag, (Get-ChildItem dist\*.exe).FullName, "--title", "课表 $tag", "--target", "${{ github.sha }}")
-          if (Test-Path $notes) { $args += @("--notes-file", $notes) } else { $args += @("--generate-notes") }
-          gh release create @args
+          $exe = (Get-ChildItem dist\*.exe | Select-Object -First 1).FullName
+          # 附件文件名只能用英文；“#”后面是 Release 页面上显示的中文名
+          $asset = "$exe#课表安装包 $env:APP_VERSION"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            # 版本已存在：换掉旧的安装包，更新说明
+            $old = gh release view $tag --json assets --jq '.assets[] | select(.name | endswith(".exe")) | .name'
+            foreach ($a in $old) { if ($a) { gh release delete-asset $tag $a -y } }
+            gh release upload $tag $asset --clobber
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            if (Test-Path $notes) { gh release edit $tag --notes-file $notes }
+          } else {
+            $args = @($tag, $asset, "--title", "课表 $tag", "--target", "${{ github.sha }}")
+            if (Test-Path $notes) { $args += @("--notes-file", $notes) } else { $args += @("--generate-notes") }
+            gh release create @args
+          }
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: 截图推送到 ci-shots 分支
