@@ -13,8 +13,8 @@ public partial class ScheduleView : UserControl
     public event EventHandler? LockClicked;
     public event EventHandler? CollapseClicked;
     public event EventHandler? DoneClicked;
-    internal event EventHandler? ExpandedLayoutChanged;
-    private bool _followPending;
+    internal event EventHandler? LayoutHeightChanged;
+    private bool _layoutUpdatePending;
 
     public ScheduleView()
     {
@@ -25,10 +25,11 @@ public partial class ScheduleView : UserControl
         ExpandButton.Click += (_, _) => CollapseClicked?.Invoke(this, EventArgs.Empty);
         DoneButton.Click += (_, _) => DoneClicked?.Invoke(this, EventArgs.Empty);
         DataContextChanged += OnDataContextChanged;
-        Loaded += (_, _) => QueueFollow();
+        Loaded += (_, _) => QueueLayoutUpdate();
+        CompactRowsList.SizeChanged += (_, _) => QueueLayoutUpdate();
         RowsScroller.ScrollChanged += (_, e) =>
         {
-            if (e.ViewportHeightChange != 0 || e.ExtentHeightChange != 0) QueueFollow();
+            if (e.ViewportHeightChange != 0 || e.ExtentHeightChange != 0) QueueLayoutUpdate();
         };
     }
 
@@ -39,7 +40,7 @@ public partial class ScheduleView : UserControl
         if (e.OldValue is ScheduleViewModel old) old.PropertyChanged -= OnVmChanged;
         if (e.NewValue is ScheduleViewModel vm) vm.PropertyChanged += OnVmChanged;
         UpdateLockGlyph();
-        QueueFollow();
+        QueueLayoutUpdate();
     }
 
     private void OnVmChanged(object? sender, PropertyChangedEventArgs e)
@@ -48,19 +49,18 @@ public partial class ScheduleView : UserControl
         if (e.PropertyName is nameof(ScheduleViewModel.VisiblePeriods) or nameof(ScheduleViewModel.Expanded)
             or nameof(ScheduleViewModel.EditMode) or nameof(ScheduleViewModel.Scale)
             or nameof(ScheduleViewModel.EmptyText) or nameof(ScheduleViewModel.FooterText))
-            QueueFollow();
+            QueueLayoutUpdate();
     }
 
-    private void QueueFollow()
+    private void QueueLayoutUpdate()
     {
-        if (_followPending || !IsLoaded) return;
-        _followPending = true;
+        if (_layoutUpdatePending || !IsLoaded) return;
+        _layoutUpdatePending = true;
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
         {
-            _followPending = false;
-            if (Vm is not { Expanded: true } vm) return;
-            ExpandedLayoutChanged?.Invoke(this, EventArgs.Empty);
-            if (vm.EditMode || RowsScroller.ScrollableHeight <= 0) return;
+            _layoutUpdatePending = false;
+            LayoutHeightChanged?.Invoke(this, EventArgs.Empty);
+            if (Vm is not { Expanded: true, EditMode: false } vm || RowsScroller.ScrollableHeight <= 0) return;
 
             var period = vm.VisiblePeriods.Current ?? vm.VisiblePeriods.Next;
             if (period == null) return;
@@ -74,18 +74,23 @@ public partial class ScheduleView : UserControl
         }));
     }
 
-    internal double MinimumExpandedHeight()
+    internal double MinimumContentHeight()
     {
         // 以实测行高预留相邻两节课的空间，同时计入标题、提示和字号缩放。
-        double required = EmptyMessage.DesiredSize.Height;
+        bool compact = Vm?.Collapsed == true;
+        var list = compact ? CompactRowsList : RowsList;
+        double available = compact ? CompactPanel.ActualHeight : RowsScroller.ActualHeight;
+        double required = compact
+            ? LockButton2.DesiredSize.Height + ExpandButton.DesiredSize.Height
+            : EmptyMessage.DesiredSize.Height;
         double previous = 0;
-        for (int i = 0; i < RowsList.Items.Count; i++)
+        for (int i = 0; i < list.Items.Count; i++)
         {
-            if (RowsList.ItemContainerGenerator.ContainerFromIndex(i) is not FrameworkElement row) break;
+            if (list.ItemContainerGenerator.ContainerFromIndex(i) is not FrameworkElement row) break;
             required = Math.Max(required, previous + row.ActualHeight);
             previous = row.ActualHeight;
         }
-        return Math.Max(0, ActualHeight + (required - RowsScroller.ActualHeight) * (Vm?.Scale ?? 1));
+        return Math.Max(0, ActualHeight + (required - available) * (Vm?.Scale ?? 1));
     }
 
     private void UpdateLockGlyph()

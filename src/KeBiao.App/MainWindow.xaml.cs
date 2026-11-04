@@ -24,7 +24,7 @@ public partial class MainWindow : Window
     private double _downLeft, _downTop;
     private LessonRow? _dragRow, _dropRow;
     private double _resizeStartY, _resizeStartHeight, _resizeStartTop;
-    private bool _resizing;
+    private bool _resizing, _resizeCollapsed;
 
     public MainWindow(AppController app, ScheduleViewModel vm)
     {
@@ -35,7 +35,7 @@ public partial class MainWindow : Window
         View.LockClicked += (_, _) => _app.ToggleLock();
         View.CollapseClicked += (_, _) => _app.ToggleCollapse();
         View.DoneClicked += (_, _) => _app.SetEditMode(false);
-        View.ExpandedLayoutChanged += (_, _) => UpdateMinimumHeight();
+        View.LayoutHeightChanged += (_, _) => UpdateMinimumHeight();
         foreach (var grip in new[] { View.TopResizeGrip, View.BottomResizeGrip })
         {
             grip.DragStarted += (_, _) => StartHeightDrag();
@@ -201,7 +201,8 @@ public partial class MainWindow : Window
     private void ApplyHeightMode()
     {
         MinHeight = 0;
-        if (View.Vm?.Expanded == true && _app.Ui.ExpandedHeight is double height && height > 0 && double.IsFinite(height))
+        var savedHeight = View.Vm?.Collapsed == true ? _app.Ui.CollapsedHeight : _app.Ui.ExpandedHeight;
+        if (savedHeight is double height && height > 0 && double.IsFinite(height))
         {
             SizeToContent = SizeToContent.Width;
             Height = Math.Min(height, MaxHeight);
@@ -216,7 +217,7 @@ public partial class MainWindow : Window
     private void UpdateMinimumHeight()
     {
         if (SizeToContent != SizeToContent.Width) return;
-        var minimum = Math.Min(Math.Ceiling(View.MinimumExpandedHeight()), MaxHeight);
+        var minimum = Math.Min(Math.Ceiling(View.MinimumContentHeight()), MaxHeight);
         if (Math.Abs(MinHeight - minimum) >= 1) MinHeight = minimum;
     }
 
@@ -231,14 +232,15 @@ public partial class MainWindow : Window
         _resizeStartY = PointerScreenY();
         _resizeStartHeight = ActualHeight;
         _resizeStartTop = Top;
+        _resizeCollapsed = View.Vm?.Collapsed == true;
         _resizing = false;
     }
 
     private void ResizeHeight(bool topEdge)
     {
-        if (View.Vm is not { Expanded: true, Locked: false }) return;
+        if (View.Vm is not { Locked: false } vm || vm.Collapsed != _resizeCollapsed) return;
         double delta = PointerScreenY() - _resizeStartY;
-        double minimum = Math.Min(View.MinimumExpandedHeight(), MaxHeight);
+        double minimum = Math.Min(View.MinimumContentHeight(), MaxHeight);
         double height = Math.Clamp(_resizeStartHeight + (topEdge ? -delta : delta), minimum, MaxHeight);
         if (Math.Abs(height - ActualHeight) < 0.5) return;
 
@@ -253,14 +255,15 @@ public partial class MainWindow : Window
     {
         if (!_resizing) return;
         _resizing = false;
-        if (canceled)
+        if (canceled || View.Vm?.Collapsed != _resizeCollapsed)
         {
             Top = _resizeStartTop;
             ApplyHeightMode();
             return;
         }
         EnsureOnScreen();
-        _app.Ui.ExpandedHeight = Height;
+        if (_resizeCollapsed) _app.Ui.CollapsedHeight = Height;
+        else _app.Ui.ExpandedHeight = Height;
         _app.SavePosition(Left, Top);
     }
 

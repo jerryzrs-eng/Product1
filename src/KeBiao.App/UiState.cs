@@ -11,6 +11,7 @@ public sealed class UiState
     public double? Left { get; set; }
     public double? Top { get; set; }
     public double? ExpandedHeight { get; set; }
+    public double? CollapsedHeight { get; set; }
     public bool Collapsed { get; set; }
     public bool Locked { get; set; }
     /// <summary>-2 = 特小，-1 = 小，0 = 标准，1 = 大，2 = 特大。</summary>

@@ -233,6 +233,15 @@ public static class ScreenshotRunner
             if (view.RowsScroller.VerticalOffset <= before)
                 throw new InvalidOperationException("课程推进后，展开列表没有向下滚动。");
             Snap(window, "19c-展开-自动跟随");
+
+            vm.Collapsed = true;
+            Pump();
+            if (view.TopResizeGrip.Visibility != Visibility.Visible || view.BottomResizeGrip.Visibility != Visibility.Visible)
+                throw new InvalidOperationException("解锁后无法在折叠模式拖动边框。");
+            vm.Locked = true;
+            Pump();
+            if (view.TopResizeGrip.Visibility != Visibility.Collapsed || view.BottomResizeGrip.Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("锁定后仍可拖动边框。");
         }
         finally
         {
