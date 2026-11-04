@@ -208,6 +208,78 @@ public class DataStoreTests : IDisposable
         Assert.Equal("26级7班", store.Load().ClassName);
     }
 
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"ClassName":"无关配置","FontLevel":2}""")]
+    [InlineData("""{"SchemaVersion":"2","Timetables":[{"Grid":[],"Bells":[]}]}""")]
+    [InlineData("""{"SchemaVersion":0,"Timetables":[{"Grid":[],"Bells":[]}]}""")]
+    [InlineData("""{"SchemaVersion":1,"Timetables":[{"Grid":[],"Bells":[]}]}""")]
+    [InlineData("""{"SchemaVersion":2,"Timetable":[],"Bells":[]}""")]
+    [InlineData("""{"Timetables":[]}""")]
+    [InlineData("""{"Timetables":[{}]}""")]
+    [InlineData("""{"Timetables":[{"Grid":[],"Bells":[{}]}]}""")]
+    [InlineData("""{"Timetables":[{"Grid":[],"Bells":[{"Periods":[{}]}]}]}""")]
+    [InlineData("""{"Timetables":[{"Grid":[],"Bells":[]}],"SubjectOverrides":[{"Subjects":null}]}""")]
+    public void RejectsJsonWithoutAValidSchedule(string json)
+    {
+        var path = new DataStore(_dir).DataPath;
+        File.WriteAllText(path, json);
+
+        Assert.Null(DataStore.ReadExport(path, out var error));
+        Assert.Contains("缺少有效的课表数据", error);
+    }
+
+    [Fact]
+    public void RejectsFutureExportVersion()
+    {
+        var path = new DataStore(_dir).DataPath;
+        File.WriteAllText(path, """{"SchemaVersion":999,"Timetables":[{"Grid":[],"Bells":[]}]}""");
+
+        Assert.Null(DataStore.ReadExport(path, out var error));
+        Assert.Contains("请更新软件", error);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("\"SchemaVersion\":1,")]
+    public void ImportsLegacyExport(string versionField)
+    {
+        var path = new DataStore(_dir).DataPath;
+        File.WriteAllText(path, $"""
+            {
+              {{versionField}}
+              "ClassName": "旧班级",
+              "Bells": [{"Periods":[{"Start":"08:00:00","End":"08:40:00"}]}],
+              "Timetable": [["语文"]]
+            }
+            """);
+
+        var data = DataStore.ReadExport(path, out var error);
+        Assert.Null(error);
+        Assert.NotNull(data);
+        Assert.Equal(ScheduleData.CurrentSchema, data.SchemaVersion);
+        Assert.Equal("旧班级", data.ClassName);
+        Assert.Equal("语文", data.Active.Grid[0][0]);
+        Assert.Equal(new TimeOnly(8, 0), data.Active.ActiveBell.Periods[0].Start);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AcceptsCurrentExportsIncludingEmptySchedules(bool empty)
+    {
+        var store = new DataStore(_dir);
+        var original = empty ? ScheduleData.CreateEmpty() : SampleData.Create();
+        store.Export(original, store.DataPath);
+
+        var data = DataStore.ReadExport(store.DataPath, out var error);
+        Assert.Null(error);
+        Assert.NotNull(data);
+        Assert.Equal(empty, data.IsEmpty);
+        Assert.Equal(original.ActiveTimetableId, data.ActiveTimetableId);
+        Assert.Equal(original.ClassName, data.ClassName);
+    }
+
     [Fact]
     public void RoundTripsAllFields()
     {

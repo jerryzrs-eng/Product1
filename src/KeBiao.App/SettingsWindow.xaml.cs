@@ -478,8 +478,8 @@ public partial class SettingsWindow : Window
     {
         var dlg = new OpenFileDialog { Filter = "课表设置|*.json" };
         if (dlg.ShowDialog(this) != true) return;
-        var d = DataStore.ReadExport(dlg.FileName);
-        if (d == null) { ChoiceDialog.Info("文件不对", "这不是课表导出的设置文件，或者文件已损坏。"); return; }
+        var d = DataStore.ReadExport(dlg.FileName, out var error);
+        if (d == null) { ChoiceDialog.Info("无法导入课表设置", error); return; }
         if (!ChoiceDialog.Confirm($"用“{(string.IsNullOrWhiteSpace(d.ClassName) ? "未命名" : d.ClassName)}”的设置替换当前全部设置？",
                 "当前设置会存进历史版本，可以随时恢复。", "替换")) return;
         _app.ReplaceData(d, "从文件恢复全部设置");

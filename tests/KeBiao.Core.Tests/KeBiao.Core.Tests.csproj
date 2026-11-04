@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\KeBiao.Core\KeBiao.Core.csproj" />
+    <Compile Include="..\..\src\KeBiao.App\UiState.cs" Link="UiState.cs" />
   </ItemGroup>
 
 </Project>

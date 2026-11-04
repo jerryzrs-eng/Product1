@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using KeBiao.Core;
 
 namespace KeBiao.App;
@@ -20,6 +21,12 @@ public sealed class UiState
     public bool TrayPromoted { get; set; }
     /// <summary>字号方案版本：0 = 旧的 5 档（0.75/0.875/1.0/1.2/1.45），1 = 新的等差 7 档（0.55..1.45）。用于把老用户保存的字号迁移到新档位。</summary>
     public int FontScheme { get; set; } = 1;
+
+    public UiState() { }
+
+    // 旧文件没有 FontScheme。反序列化时用 0，新建状态仍使用当前方案。
+    [JsonConstructor]
+    public UiState(int fontScheme = 0) => FontScheme = fontScheme;
 
     public double Scale => 1.0 + FontLevel * 0.15;
 

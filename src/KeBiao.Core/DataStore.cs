@@ -123,15 +123,72 @@ public sealed class DataStore
     public void Export(ScheduleData data, string path) =>
         File.WriteAllText(path, JsonSerializer.Serialize(data, JsonOptions.Default));
 
-    public static ScheduleData? ReadExport(string path)
+    public static ScheduleData? ReadExport(string path) => ReadExport(path, out _);
+
+    public static ScheduleData? ReadExport(string path, out string? error)
     {
+        error = "文件缺少有效的课表数据，或文件已损坏。";
         try
         {
-            var d = JsonSerializer.Deserialize<ScheduleData>(File.ReadAllText(path), JsonOptions.Default);
-            d?.Normalize();
-            return d;
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return null;
+
+            bool hasTimetables = root.TryGetProperty(nameof(ScheduleData.Timetables), out _);
+            bool hasLegacyFields = root.TryGetProperty("Timetable", out _) || root.TryGetProperty("Bells", out _);
+            int schema = hasTimetables ? ScheduleData.CurrentSchema : 1;
+            if (root.TryGetProperty(nameof(ScheduleData.SchemaVersion), out var version))
+            {
+                if (version.ValueKind != JsonValueKind.Number || !version.TryGetInt32(out schema))
+                    return null;
+                if (schema > ScheduleData.CurrentSchema)
+                {
+                    error = $"此文件使用较新的课表数据格式（版本 {schema}），请更新软件后再导入。";
+                    return null;
+                }
+            }
+
+            // 先确认文件中确实有课表结构，再调用 Normalize 补齐或迁移旧数据。
+            bool valid = schema switch
+            {
+                1 => !hasTimetables && HasTimetable(root, "Timetable"),
+                2 => !hasLegacyFields
+                    && TryGetArray(root, nameof(ScheduleData.Timetables), out var tables)
+                    && tables.GetArrayLength() > 0
+                    && tables.EnumerateArray().All(table => HasTimetable(table, nameof(Timetable.Grid))),
+                _ => false,
+            };
+            if (!valid) return null;
+
+            var data = root.Deserialize<ScheduleData>(JsonOptions.Default);
+            if (data == null || data.FlippedWeeks == null || data.DayOverrides == null
+                || data.SubjectOverrides == null || data.SubjectOverrides.Any(o => o?.Subjects == null)
+                || data.Timetables.Any(t => t.Name == null))
+                return null;
+
+            data.Normalize();
+            error = null;
+            return data;
         }
         catch { return null; }
+    }
+
+    private static bool HasTimetable(JsonElement table, string gridProperty) =>
+        TryGetArray(table, gridProperty, out _)
+        && TryGetArray(table, nameof(Timetable.Bells), out var bells)
+        && bells.EnumerateArray().All(bell =>
+            TryGetArray(bell, nameof(BellSchedule.Periods), out var periods)
+            && periods.EnumerateArray().All(period =>
+                period.ValueKind == JsonValueKind.Object
+                && period.TryGetProperty(nameof(Period.Start), out _)
+                && period.TryGetProperty(nameof(Period.End), out _)));
+
+    private static bool TryGetArray(JsonElement parent, string name, out JsonElement array)
+    {
+        array = default;
+        return parent.ValueKind == JsonValueKind.Object
+            && parent.TryGetProperty(name, out array)
+            && array.ValueKind == JsonValueKind.Array;
     }
 
     private void WriteAtomic(ScheduleData data)
