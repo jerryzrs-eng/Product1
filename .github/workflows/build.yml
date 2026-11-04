@@ -3,6 +3,7 @@ name: 构建
 on:
   push:
     branches-ignore: ['ci-shots/**']
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
@@ -19,11 +20,19 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: 版本号
+        shell: pwsh
+        run: |
+          # 推送 v1.2.3 这样的标签时用标签里的版本号，否则用默认版本
+          $v = "1.0.0"
+          if ("${{ github.ref_type }}" -eq "tag") { $v = "${{ github.ref_name }}".TrimStart("v") }
+          "APP_VERSION=$v" >> $env:GITHUB_ENV
+
       - name: 单元测试
         run: dotnet test tests/KeBiao.Core.Tests -c Release
 
       - name: 发布程序
-        run: dotnet publish src/KeBiao.App -c Release -r win-x64 --self-contained true -o publish
+        run: dotnet publish src/KeBiao.App -c Release -r win-x64 --self-contained true -o publish -p:Version=${{ env.APP_VERSION }}
 
       - name: 界面截图
         shell: pwsh
@@ -41,7 +50,7 @@ jobs:
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
-          & $iscc installer\KeBiao.iss
+          & $iscc "/DAppVersion=$env:APP_VERSION" installer\KeBiao.iss
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Get-ChildItem dist
 
@@ -56,8 +65,20 @@ jobs:
           name: 截图
           path: shots
 
+      - name: 发布到 Releases
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $notes = "docs/更新说明/${{ github.ref_name }}.md"
+          $args = @("${{ github.ref_name }}", (Get-ChildItem dist\*.exe).FullName, "--title", "课表 ${{ github.ref_name }}")
+          if (Test-Path $notes) { $args += @("--notes-file", $notes) } else { $args += @("--generate-notes") }
+          gh release create @args
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
       - name: 截图推送到 ci-shots 分支
-        if: always()
+        if: always() && github.ref_type == 'branch'
         shell: pwsh
         run: |
           if (-not (Test-Path shots)) { exit 0 }
