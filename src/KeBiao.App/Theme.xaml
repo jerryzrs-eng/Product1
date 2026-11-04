@@ -141,6 +141,9 @@
         <Setter Property="Margin" Value="0,0,20,0" />
     </Style>
 
+    <Style TargetType="DatePickerTextBox">
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
     <Style TargetType="DatePicker">
         <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
         <Setter Property="FontSize" Value="15" />

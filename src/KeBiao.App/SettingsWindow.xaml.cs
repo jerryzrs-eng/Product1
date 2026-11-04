@@ -255,8 +255,8 @@ public partial class SettingsWindow : Window
         var root = new StackPanel();
         root.Children.Add(PageTitle("日期调整"));
 
-        var from = new DatePicker { SelectedDate = _app.Now.Date, Width = 170 };
-        var to = new DatePicker { SelectedDate = _app.Now.Date, Width = 170 };
+        var from = new DatePicker { SelectedDate = _app.Now.Date, Width = 200 };
+        var to = new DatePicker { SelectedDate = _app.Now.Date, Width = 200 };
         from.SelectedDateChanged += (_, _) =>
         {
             if (from.SelectedDate is DateTime f && (to.SelectedDate is not DateTime t || t < f)) to.SelectedDate = f;
