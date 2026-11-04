@@ -409,14 +409,21 @@ public partial class SettingsWindow : Window
 
     private void ImportFromFile()
     {
-        var dlg = new OpenFileDialog { Filter = "课表文件|*.xlsx;*.csv;*.txt;*.md|所有文件|*.*", Title = "选择课表文件" };
+        var dlg = new OpenFileDialog { Filter = "课表文件|*.xlsx;*.xlsm;*.csv;*.txt;*.md|所有文件|*.*", Title = "选择课表文件" };
         if (dlg.ShowDialog(this) != true) return;
-        ShowImport(TimetableImporter.FromFile(dlg.FileName));
+        var result = TimetableImporter.FromFile(dlg.FileName, out var worksheets);
+        if (worksheets.Count > 1)
+        {
+            var window = new BatchImportWindow(_app, worksheets) { Owner = this };
+            window.ShowDialog();
+            return;
+        }
+        ShowImport(result, worksheets.SingleOrDefault()?.Name);
     }
 
-    private bool ShowImport(ImportResult result)
+    private bool ShowImport(ImportResult result, string? suggestedName = null)
     {
-        var w = new ImportPreviewWindow(_app, result) { Owner = this };
+        var w = new ImportPreviewWindow(_app, result, suggestedName) { Owner = this };
         return w.ShowDialog() == true;
     }
 

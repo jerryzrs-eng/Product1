@@ -12,15 +12,17 @@ public sealed class ImportPreviewWindow : Window
 {
     private readonly AppController _app;
     private readonly ImportResult _r;
+    private readonly string? _suggestedName;
     private readonly ComboBox _target = new() { Width = 260 };
     private readonly CheckBox _makeActive = new() { Content = "设为当前课表", IsChecked = true, Margin = new Thickness(20, 0, 0, 0) };
     private readonly CheckBox _useClass = new();
     private readonly CheckBox _useTerm = new();
 
-    public ImportPreviewWindow(AppController app, ImportResult result)
+    public ImportPreviewWindow(AppController app, ImportResult result, string? suggestedName = null)
     {
         _app = app;
         _r = result;
+        _suggestedName = suggestedName;
         Title = "导入预览";
         Width = 1080;
         Height = 760;
@@ -189,7 +191,7 @@ public sealed class ImportPreviewWindow : Window
         string? newName = null;
         if (targetId == null)
         {
-            newName = TextInputDialog.Ask("新课表的名称", data.IsEmpty ? "常规课表" : "新课表");
+            newName = TextInputDialog.Ask("新课表的名称", _suggestedName ?? (data.IsEmpty ? "常规课表" : "新课表"));
             if (newName == null) return;
         }
         bool makeActive = targetId == data.ActiveTimetableId || _makeActive.IsChecked == true;

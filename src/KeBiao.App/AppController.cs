@@ -174,6 +174,23 @@ public sealed class AppController
         Commit(reason);
     }
 
+    public bool TrySaveImportedData(ScheduleData data, string reason)
+    {
+        try
+        {
+            Store.Save(data, reason);
+        }
+        catch (Exception ex)
+        {
+            ChoiceDialog.Info("导入保存失败", ex.Message);
+            return false;
+        }
+        Data = data;
+        Refresh();
+        _settings?.OnDataChanged();
+        return true;
+    }
+
     public void SaveUi() => Ui.Save(Store.Directory);
 
     public void SavePosition(double left, double top)

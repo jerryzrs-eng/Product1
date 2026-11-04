@@ -1,4 +1,5 @@
 using System.Text;
+using ClosedXML.Excel;
 using KeBiao.Core;
 
 namespace KeBiao.Core.Tests;
@@ -25,6 +26,35 @@ public class ImportTests : IDisposable
         Assert.Equal(new TimeOnly(10, 25), r.Periods[3].Start);
         Assert.Equal("单:音乐\n双:美术", r.Timetable[6][4]);
         Assert.Equal("", r.Timetable[0][5]);
+    }
+
+    [Fact]
+    public void WorkbookReadsAllClassesAndKeepsErrorsWithTheirSheet()
+    {
+        var path = Path.Combine(_dir, "年级课表.xlsx");
+        using (var workbook = new XLWorkbook())
+        {
+            workbook.Worksheets.Add("填写规则").Cell("A1").Value = "说明";
+            for (int i = 1; i <= 6; i++)
+            {
+                var sheet = workbook.Worksheets.Add($"高二{i}班");
+                sheet.Cell("A1").Value = "时间";
+                sheet.Cell("B1").Value = "周一";
+                sheet.Cell("C1").Value = "周二";
+                sheet.Cell("D1").Value = "周三";
+                sheet.Cell("A2").Value = i == 3 ? "待定" : "08:00-08:40";
+                sheet.Cell("B2").Value = $"课程{i}";
+            }
+            workbook.SaveAs(path);
+        }
+
+        var result = TimetableImporter.FromFile(path, out var sheets);
+
+        Assert.Equal(Enumerable.Range(1, 6).Select(i => $"高二{i}班"), sheets.Select(s => s.Name));
+        Assert.Same(sheets[0].Result, result);
+        Assert.Equal("课程6", sheets[5].Result.Timetable[0][0]);
+        Assert.All(sheets.Where(s => s.Name != "高二3班"), s => Assert.True(s.Result.Ok));
+        Assert.Equal(2, Assert.Single(sheets[2].Result.Errors).Row);
     }
 
     [Fact]

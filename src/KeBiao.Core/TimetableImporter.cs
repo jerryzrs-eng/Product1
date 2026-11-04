@@ -28,20 +28,29 @@ public sealed class ImportResult
     public bool Ok => Errors.Count == 0 && Periods.Count > 0;
 }
 
+public sealed record WorksheetImport(string Name, ImportResult Result);
+
 public static partial class TimetableImporter
 {
     static TimetableImporter() => Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
     // ---------- 入口 ----------
 
-    public static ImportResult FromFile(string path)
+    public static ImportResult FromFile(string path) => FromFile(path, out _);
+
+    public static ImportResult FromFile(string path, out IReadOnlyList<WorksheetImport> worksheets)
     {
+        worksheets = Array.Empty<WorksheetImport>();
         var ext = Path.GetExtension(path).ToLowerInvariant();
         try
         {
+            if (ext is ".xlsx" or ".xlsm")
+            {
+                worksheets = ReadWorksheets(path).ToList();
+                return PreferredResult(worksheets);
+            }
             return ext switch
             {
-                ".xlsx" or ".xlsm" => FromXlsx(path),
                 ".csv" or ".txt" or ".tsv" or ".md" => FromText(ReadTextAuto(path)),
                 ".xls" => Fail("暂不支持旧版 .xls 文件，请在 Excel 里“另存为 .xlsx”后再导入。"),
                 _ => Fail("只支持 .xlsx、.csv 文件，或直接粘贴表格文字。"),
@@ -57,18 +66,27 @@ public static partial class TimetableImporter
         }
     }
 
-    public static ImportResult FromXlsx(string path)
+    public static ImportResult FromXlsx(string path) => PreferredResult(ReadWorksheets(path));
+
+    private static IEnumerable<WorksheetImport> ReadWorksheets(string path)
     {
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         using var wb = new XLWorkbook(stream);
-        ImportResult? first = null;
         foreach (var ws in wb.Worksheets)
         {
             var rows = SheetToRows(ws);
             if (FindHeader(rows) < 0) continue;
-            var r = FromRows(rows);
-            if (r.Ok) return r;
-            first ??= r;
+            yield return new WorksheetImport(ws.Name, FromRows(rows));
+        }
+    }
+
+    private static ImportResult PreferredResult(IEnumerable<WorksheetImport> worksheets)
+    {
+        ImportResult? first = null;
+        foreach (var sheet in worksheets)
+        {
+            if (sheet.Result.Ok) return sheet.Result;
+            first ??= sheet.Result;
         }
         return first ?? Fail("没有找到表头。表格里需要有一行写着“时间”和“周一”到“周五”（或“星期一”…）。");
     }
