@@ -88,9 +88,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ./.github/scripts/Test-ReleaseSource.ps1
-          ./.github/scripts/Test-ReleaseApproval.ps1
-          ./.github/scripts/Test-ReleaseNotes.ps1 -Tag $env:RELEASE_TAG -Commit $env:RELEASE_COMMIT
+          $policy = Join-Path $env:RUNNER_TEMP 'release-policy'
+          git worktree add --detach $policy $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw '无法检出本次工作流的发布规则' }
+          & "$policy/.github/scripts/Test-ReleaseSource.ps1"
+          & "$policy/.github/scripts/Test-ReleaseApproval.ps1"
+          & "$policy/.github/scripts/Test-ReleaseNotes.ps1" -Tag $env:RELEASE_TAG -Commit $env:RELEASE_COMMIT
           "等待仓库所有者审批。版本 $env:RELEASE_TAG，授权提交 $env:RELEASE_COMMIT" >> $env:GITHUB_STEP_SUMMARY
 
       - name: 单元测试
@@ -183,9 +186,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = $env:RELEASE_TAG
-          ./.github/scripts/Test-ReleaseSource.ps1
-          ./.github/scripts/Test-ReleaseApproval.ps1 -RequireApproval
-          ./.github/scripts/Test-ReleaseNotes.ps1 -Tag $tag -Commit $env:RELEASE_COMMIT
+          $policy = Join-Path $env:RUNNER_TEMP 'release-policy'
+          git worktree add --detach $policy $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw '无法检出本次工作流的发布规则' }
+          & "$policy/.github/scripts/Test-ReleaseSource.ps1"
+          & "$policy/.github/scripts/Test-ReleaseApproval.ps1" -RequireApproval
+          & "$policy/.github/scripts/Test-ReleaseNotes.ps1" -Tag $tag -Commit $env:RELEASE_COMMIT
           $notes = "docs/更新说明/$tag.md"
           $exe = (Get-Item -LiteralPath "dist/KeBiao-Setup-$env:APP_VERSION.exe").FullName
           $name = Split-Path -Leaf $exe
@@ -213,6 +219,16 @@ jobs:
           $downloadedHash = (Get-FileHash -LiteralPath (Join-Path $checkDir $name) -Algorithm SHA256).Hash
           if ($hash -ne $downloadedHash) { throw 'Release 草稿安装包与构建产物的 SHA-256 不一致' }
 
+          # 草稿的 target 不会覆盖同名标签。公开前重新检查远端引用。
+          $remoteTag = @(git ls-remote --tags origin "refs/tags/$tag" "refs/tags/$tag^{}")
+          if ($LASTEXITCODE -ne 0) { throw '无法检查远端发布标签' }
+          if ($remoteTag.Count -gt 0) {
+            $remoteCommit = ($remoteTag[-1] -split '\s+')[0]
+            if ($remoteCommit -ne $env:RELEASE_COMMIT) { throw '远端发布标签指向其他提交，保留草稿供核查' }
+          } else {
+            gh api --method POST "repos/$env:GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$tag" -f "sha=$env:RELEASE_COMMIT" --silent
+            if ($LASTEXITCODE -ne 0) { throw '无法创建固定 SHA 的版本标签，保留草稿供核查' }
+          }
           gh release edit $tag --draft=false
           if ($LASTEXITCODE -ne 0) { throw '公开 Release 失败' }
           $tagCommit = gh api "repos/$env:GITHUB_REPOSITORY/commits/$tag" --jq '.sha'
