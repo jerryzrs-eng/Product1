@@ -245,7 +245,7 @@ public class DataStoreTests : IDisposable
     public void ImportsLegacyExport(string versionField)
     {
         var path = new DataStore(_dir).DataPath;
-        File.WriteAllText(path, $"""
+        File.WriteAllText(path, $$"""
             {
               {{versionField}}
               "ClassName": "旧班级",
