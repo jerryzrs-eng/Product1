@@ -150,35 +150,24 @@ public sealed class ScheduleViewModel : Observable
             if (s.Phase == Phase.AfterSchool && later == null) FooterText = "今日课程结束";
         }
 
-        // 折叠时的两行
+        // 折叠时先显示当前状态，再显示当天的下一节课。
         var compact = new List<LessonRow>();
-        if (data.IsEmpty)
+        if (data.IsEmpty && plan.Lessons.Count == 0)
         {
             compact.Add(Message("还没有课表"));
         }
         else
         {
-            switch (s.Phase)
+            compact.Add(s.Phase switch
             {
-                case Phase.InClass:
-                    compact.Add(MakeRow(s.Current!, RowState.Current, s.CurrentProgress, true));
-                    if (s.Next != null) compact.Add(MakeRow(s.Next, s.NextIsSoon ? RowState.Soon : RowState.Future, 0, true));
-                    break;
-                case Phase.BeforeClass:
-                case Phase.Break:
-                    compact.Add(MakeRow(s.Next!, s.NextIsSoon ? RowState.Soon : RowState.Future, 0, true));
-                    break;
-                case Phase.AfterSchool:
-                case Phase.NoClassToday:
-                    compact.Add(Message(s.Phase == Phase.AfterSchool ? "今日课程结束" : plan.IsHoliday ? "今日放假" : "今日无课"));
-                    if (s.LaterFirst != null && s.LaterDate is { } d)
-                    {
-                        var r = MakeRow(s.LaterFirst, RowState.Future, 0, true);
-                        r.TimeText = $"{DayLabel(DateOnly.FromDateTime(now), d)} {r.TimeText}";
-                        compact.Add(r);
-                    }
-                    break;
-            }
+                Phase.InClass => MakeRow(s.Current!, RowState.Current, s.CurrentProgress, true),
+                Phase.BeforeClass => Message("尚未上课"),
+                Phase.Break => Message("课间"),
+                Phase.AfterSchool => Message("今日课程结束"),
+                _ => Message(plan.IsHoliday ? "今日放假" : "今日无课"),
+            });
+            if (s.Next is { } next)
+                compact.Add(MakeRow(next, s.NextIsSoon ? RowState.Soon : RowState.Future, 0, true));
         }
         Sync(CompactRows, compact);
     }
