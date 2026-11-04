@@ -17,6 +17,11 @@ public sealed class AppController
     private readonly Func<DateTime> _now;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(5) };
     private readonly DispatcherTimer _peekTimer = new() { Interval = TimeSpan.FromSeconds(10) };
+    private readonly DispatcherTimer _previewTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
+    private DateTime _previewUntil;
+
+    /// <summary>查看下一天的课多久后自动回到今天。</summary>
+    public static readonly TimeSpan PreviewDuration = TimeSpan.FromSeconds(20);
     private System.Windows.Forms.NotifyIcon? _tray;
     private SettingsWindow? _settings;
     private DateOnly _lastDate;
@@ -55,6 +60,12 @@ public sealed class AppController
         _timer.Tick += (_, _) => { PruneIfNeeded(false); Refresh(); };
         _timer.Start();
         _peekTimer.Tick += (_, _) => EndPeek();
+        _previewTimer.Tick += (_, _) =>
+        {
+            var left = _previewUntil - DateTime.Now;
+            if (left <= TimeSpan.Zero) ExitPreview();
+            else Vm.PreviewRemaining = left.TotalMilliseconds / PreviewDuration.TotalMilliseconds;
+        };
 
         SystemEvents.TimeChanged += (_, _) => Dispatch(Refresh);
         SystemEvents.PowerModeChanged += (_, e) => { if (e.Mode == PowerModes.Resume) Dispatch(Refresh); };
@@ -211,6 +222,13 @@ public sealed class AppController
 
     public void ToggleCollapse()
     {
+        if (Vm.IsPreview)
+        {
+            // 原本是折叠的：看完就回到折叠，相当于“收起”
+            bool wasCollapsed = Ui.Collapsed;
+            ExitPreview();
+            if (wasCollapsed) return;
+        }
         Ui.Collapsed = !Ui.Collapsed;
         Vm.Collapsed = Ui.Collapsed;
         SaveUi();
@@ -231,8 +249,48 @@ public sealed class AppController
         Window?.ApplyLayer(on, _peeking);
     }
 
+    // ---------- 查看下一天 ----------
+
+    /// <summary>主界面上的箭头：没在看就看下一天，正在看就回到今天。</summary>
+    public void TogglePreview()
+    {
+        if (Vm.IsPreview) ExitPreview();
+        else ShowNextDay();
+    }
+
+    /// <summary>临时显示下一个有课的日子（跳过周末和放假），一段时间后自动回到今天。折叠时会临时展开。</summary>
+    public void ShowNextDay()
+    {
+        if (Vm.EditMode) return;
+        var today = DateOnly.FromDateTime(Now);
+        Vm.PreviewDate = ScheduleViewModel.NextSchoolDay(Data, today);
+        Vm.Collapsed = false;
+        KeepPreview();
+        _previewTimer.Start();
+        Refresh();
+    }
+
+    /// <summary>在看的时候有操作（滚动、点按），就重新计时，不在看的过程中突然跳回。</summary>
+    public void KeepPreview()
+    {
+        if (!Vm.IsPreview) return;
+        _previewUntil = DateTime.Now + PreviewDuration;
+        Vm.PreviewRemaining = 1;
+    }
+
+    public void ExitPreview()
+    {
+        _previewTimer.Stop();
+        if (!Vm.IsPreview) return;
+        Vm.PreviewDate = null;
+        Vm.PreviewRemaining = 0;
+        Vm.Collapsed = Ui.Collapsed && !Vm.EditMode;
+        Refresh();
+    }
+
     public void SetEditMode(bool on)
     {
+        if (on) ExitPreview();
         if (on && Data.IsEmpty)
         {
             ChoiceDialog.Info("还没有课表", "先在设置里导入课表，再来调课。");
@@ -381,6 +439,13 @@ public sealed class AppController
             menu.Items.Add(switcher);
         }
 
+        if (!Vm.EditMode && !Data.IsEmpty)
+        {
+            var next = new MenuItem { Header = Vm.IsPreview ? "回到今天" : "看下一天的课" };
+            next.Click += (_, _) => TogglePreview();
+            menu.Items.Add(next);
+        }
+
         var edit = new MenuItem { Header = Vm.EditMode ? "结束拖动调课" : "拖动调课" };
         edit.Click += (_, _) => SetEditMode(!Vm.EditMode);
         menu.Items.Add(edit);
@@ -437,6 +502,9 @@ public sealed class AppController
 
     /// <summary>系统关机、安装程序要求退出时调用，不弹确认。</summary>
     public void ExitQuietly() => Exit(false);
+
+    /// <summary>截图检查用：允许直接关掉临时创建的主窗口。</summary>
+    internal void AllowWindowClose() => Exiting = true;
 
     public static void LogError(Exception ex)
     {

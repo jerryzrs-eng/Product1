@@ -13,6 +13,7 @@ public partial class ScheduleView : UserControl
     public event EventHandler? LockClicked;
     public event EventHandler? CollapseClicked;
     public event EventHandler? DoneClicked;
+    public event EventHandler? DayClicked;
     internal event EventHandler? LayoutHeightChanged;
     private bool _layoutUpdatePending;
 
@@ -24,6 +25,7 @@ public partial class ScheduleView : UserControl
         CollapseButton.Click += (_, _) => CollapseClicked?.Invoke(this, EventArgs.Empty);
         ExpandButton.Click += (_, _) => CollapseClicked?.Invoke(this, EventArgs.Empty);
         DoneButton.Click += (_, _) => DoneClicked?.Invoke(this, EventArgs.Empty);
+        DayButton.Click += (_, _) => DayClicked?.Invoke(this, EventArgs.Empty);
         DataContextChanged += OnDataContextChanged;
         Loaded += (_, _) => QueueLayoutUpdate();
         CompactRowsList.SizeChanged += (_, _) => QueueLayoutUpdate();
@@ -47,6 +49,7 @@ public partial class ScheduleView : UserControl
     {
         if (e.PropertyName == nameof(ScheduleViewModel.Locked)) UpdateLockGlyph();
         if (e.PropertyName is nameof(ScheduleViewModel.VisiblePeriods) or nameof(ScheduleViewModel.Expanded)
+            or nameof(ScheduleViewModel.IsPreview)
             or nameof(ScheduleViewModel.EditMode) or nameof(ScheduleViewModel.Scale)
             or nameof(ScheduleViewModel.EmptyText) or nameof(ScheduleViewModel.FooterText))
             QueueLayoutUpdate();
@@ -61,6 +64,7 @@ public partial class ScheduleView : UserControl
             _layoutUpdatePending = false;
             LayoutHeightChanged?.Invoke(this, EventArgs.Empty);
             if (Vm is not { Expanded: true, EditMode: false } vm || RowsScroller.ScrollableHeight <= 0) return;
+            if (vm.IsPreview) { RowsScroller.ScrollToTop(); return; }
 
             var period = vm.VisiblePeriods.Current ?? vm.VisiblePeriods.Next;
             if (period == null) return;

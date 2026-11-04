@@ -75,6 +75,8 @@ public sealed class ScheduleViewModel : Observable
     private bool _editMode;
     private double _scale = 1.0;
     private (int? Current, int? Next) _visiblePeriods;
+    private DateOnly? _previewDate;
+    private double _previewRemaining;
 
     public string ClassName { get => _className; set => Set(ref _className, value); }
     public string DateText { get => _dateText; set => Set(ref _dateText, value); }
@@ -96,18 +98,22 @@ public sealed class ScheduleViewModel : Observable
         private set => Set(ref _visiblePeriods, value);
     }
 
+    /// <summary>正在临时查看的那一天（下一个有课的日子）；null 表示显示今天。</summary>
+    public DateOnly? PreviewDate
+    {
+        get => _previewDate;
+        set { if (Set(ref _previewDate, value)) Raise(nameof(IsPreview)); }
+    }
+    public bool IsPreview => _previewDate != null;
+    /// <summary>距离自动回到今天还剩的比例（1 → 0），用一条渐短的线表示。</summary>
+    public double PreviewRemaining { get => _previewRemaining; set => Set(ref _previewRemaining, value); }
+
     public ObservableCollection<LessonRow> Rows { get; } = new();
     public ObservableCollection<LessonRow> CompactRows { get; } = new();
 
-    public void Update(ScheduleData data, DateTime now)
+    private static string DateLine(ScheduleData data, DayPlan plan, string prefix)
     {
-        var s = ScheduleEngine.GetStatus(data, now);
-        var plan = s.Today;
-        var time = TimeOnly.FromDateTime(now);
-
-        ClassName = string.IsNullOrWhiteSpace(data.ClassName) ? "未设置班级" : data.ClassName;
-
-        var date = now.ToString("M月d日 dddd", Zh);
+        var date = (prefix.Length > 0 ? prefix + " " : "") + plan.Date.ToDateTime(TimeOnly.MinValue).ToString("M月d日 dddd", Zh);
         var extra = new List<string>();
         if (plan.WeekNumber is { } w) extra.Add($"第{w}周");
         if (data.UsesParity) extra.Add(plan.IsOddWeek ? "单周" : "双周");
@@ -115,7 +121,48 @@ public sealed class ScheduleViewModel : Observable
             extra.Add($"按{ScheduleEngine.WeekdayName(plan.Override.Weekday)}上课");
         if (plan.Override?.Kind == DayOverrideKind.UseTimetable)
             extra.Add($"用“{plan.Timetable.Name}”");
-        DateText = extra.Count == 0 ? date : date + " · " + string.Join(" ", extra);
+        return extra.Count == 0 ? date : date + " · " + string.Join(" ", extra);
+    }
+
+    /// <summary>从明天起找下一个有课的日子（最多往后看 14 天）；都没课就返回明天。</summary>
+    public static DateOnly NextSchoolDay(ScheduleData data, DateOnly today)
+    {
+        for (int i = 1; i <= 14; i++)
+        {
+            var d = today.AddDays(i);
+            if (ScheduleEngine.GetDayPlan(data, d).Lessons.Count > 0) return d;
+        }
+        return today.AddDays(1);
+    }
+
+    /// <summary>临时查看某一天：整天的课都按“未开始”显示。</summary>
+    private void UpdatePreview(ScheduleData data, DateTime now, DateOnly day)
+    {
+        var plan = ScheduleEngine.GetDayPlan(data, day);
+        ClassName = string.IsNullOrWhiteSpace(data.ClassName) ? "未设置班级" : data.ClassName;
+        int diff = day.DayNumber - DateOnly.FromDateTime(now).DayNumber;
+        // “明天”“后天”写在日期前；再往后日期本身已带星期几，不重复
+        DateText = DateLine(data, plan, diff is 1 or 2 ? DayLabel(DateOnly.FromDateTime(now), day) : "");
+        Sync(Rows, plan.Lessons.Select(l => MakeRow(l, RowState.Future, 0, false)).ToList());
+        VisiblePeriods = (null, null);
+        EmptyText = plan.Lessons.Count > 0 ? null : plan.IsHoliday ? "放假" : "无课";
+        FooterText = null;
+    }
+
+    public void Update(ScheduleData data, DateTime now)
+    {
+        if (PreviewDate is { } preview)
+        {
+            UpdatePreview(data, now, preview);
+            return;
+        }
+        var s = ScheduleEngine.GetStatus(data, now);
+        var plan = s.Today;
+        var time = TimeOnly.FromDateTime(now);
+
+        ClassName = string.IsNullOrWhiteSpace(data.ClassName) ? "未设置班级" : data.ClassName;
+
+        DateText = DateLine(data, plan, "");
 
         // 展开时的整日列表
         var rows = new List<LessonRow>();

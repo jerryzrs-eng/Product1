@@ -35,6 +35,8 @@ public partial class MainWindow : Window
         View.LockClicked += (_, _) => _app.ToggleLock();
         View.CollapseClicked += (_, _) => _app.ToggleCollapse();
         View.DoneClicked += (_, _) => _app.SetEditMode(false);
+        View.DayClicked += (_, _) => _app.TogglePreview();
+        View.RowsScroller.ScrollChanged += (_, e) => { if (e.VerticalChange != 0) _app.KeepPreview(); };
         View.LayoutHeightChanged += (_, _) => UpdateMinimumHeight();
         foreach (var grip in new[] { View.TopResizeGrip, View.BottomResizeGrip })
         {
@@ -119,6 +121,7 @@ public partial class MainWindow : Window
 
     private void OnDown(object sender, MouseButtonEventArgs e)
     {
+        _app.KeepPreview();
         if (ScheduleView.IsOnInteractiveControl(e.OriginalSource as DependencyObject)) return;
         _pressed = true;
         _dragging = false;
@@ -272,21 +275,27 @@ public partial class MainWindow : Window
         _app.SavePosition(Left, Top);
     }
 
-    /// <summary>解锁时双击底部，把高度恢复到刚好装下内容的最适合高度。</summary>
+    /// <summary>
+    /// 解锁时双击底部：回到“自动适应”——高度每天跟着当天的课程数变化，刚好装下所有课；
+    /// 超出屏幕时才滚动。之后再拖动边框，又会变回固定高度。
+    /// </summary>
     private void RestoreFittedHeight()
     {
         var vm = View.Vm;
         if (vm is not { Locked: false }) return;
-        bool collapsed = vm.Collapsed == true;
-        double fitted = Math.Min(Math.Ceiling(View.MinimumContentHeight()), MaxHeight);
-        _resizing = false;
-        SizeToContent = SizeToContent.Width;
-        MinHeight = fitted;
-        Height = fitted;
-        EnsureOnScreen();
-        if (collapsed) _app.Ui.CollapsedHeight = Height;
-        else _app.Ui.ExpandedHeight = Height;
+        FitToContent();
         _app.SavePosition(Left, Top);
+    }
+
+    /// <summary>清除保存的高度，按内容自动定高，并保证整个窗口在屏幕内。</summary>
+    internal void FitToContent()
+    {
+        _resizing = false;
+        if (View.Vm?.Collapsed == true) _app.Ui.CollapsedHeight = null;
+        else _app.Ui.ExpandedHeight = null;
+        ApplyHeightMode();
+        UpdateLayout();
+        EnsureOnScreen();
     }
 
     /// <summary>窗口至少要有一部分留在屏幕内（换分辨率、拔掉副屏之后）。</summary>
@@ -297,7 +306,15 @@ public partial class MainWindow : Window
         double w = ActualWidth > 0 ? ActualWidth : 340, h = ActualHeight > 0 ? ActualHeight : 200;
         const double keep = 120;
         double left = Math.Clamp(Left, vl - w + keep, vl + vw - keep);
-        double top = Math.Clamp(Top, vt, vt + vh - Math.Min(h, keep));
+        // 竖直方向：放得下就整个留在屏幕内（窗口变高时往上挪，不让底部的课被屏幕截掉）
+        // 在主屏上时以去掉任务栏后的工作区为准；在其他屏上以整个虚拟屏幕为准
+        var wa = SystemParameters.WorkArea;
+        double cx = left + w / 2;
+        bool onPrimary = cx >= wa.Left && cx <= wa.Right;
+        double areaTop = onPrimary ? wa.Top : vt, areaBottom = onPrimary ? wa.Bottom : vt + vh;
+        double top = h <= areaBottom - areaTop
+            ? Math.Clamp(Top, areaTop, areaBottom - h)
+            : Math.Clamp(Top, vt, vt + vh - Math.Min(h, keep));
         if (Math.Abs(left - Left) > 0.5) Left = left;
         if (Math.Abs(top - Top) > 0.5) Top = top;
     }
