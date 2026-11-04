@@ -63,6 +63,22 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Get-ChildItem dist
 
+      - name: 安装包实测（静默安装、检查、卸载）
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem dist\*.exe | Select-Object -First 1).FullName
+          "安装包大小：" + (Get-Item $exe).Length + " 字节"
+          "SHA256：" + (Get-FileHash $exe -Algorithm SHA256).Hash
+          $dir = "$env:RUNNER_TEMP\kebiao-install"
+          $p = Start-Process $exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER',"/DIR=$dir",'/TASKS=','/LOG=install.log' -PassThru -Wait
+          Get-Content install.log -Tail 15
+          if ($p.ExitCode -ne 0) { "安装失败，退出码 $($p.ExitCode)"; exit 1 }
+          if (-not (Test-Path "$dir\KeBiao.exe")) { "安装后找不到 KeBiao.exe"; exit 1 }
+          "安装成功，共 " + (Get-ChildItem $dir -Recurse -File).Count + " 个文件"
+          Get-Process KeBiao -ErrorAction SilentlyContinue | Stop-Process -Force
+          $un = Get-ChildItem "$dir\unins*.exe" | Select-Object -First 1
+          if ($un) { Start-Process $un.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait }
+
       - uses: actions/upload-artifact@v4
         with:
           name: 课表-安装包
@@ -100,6 +116,14 @@ jobs:
             gh release create @args
           }
           if ($LASTEXITCODE -ne 0) { exit 1 }
+          # 从 Release 下载回来，确认和本地打出来的安装包完全一致
+          New-Item -ItemType Directory -Force check | Out-Null
+          gh release download $tag --pattern "*.exe" --dir check --clobber
+          $a = (Get-FileHash $exe -Algorithm SHA256).Hash
+          $b = (Get-FileHash (Get-ChildItem check\*.exe | Select-Object -First 1).FullName -Algorithm SHA256).Hash
+          "本地：$a"
+          "Release：$b"
+          if ($a -ne $b) { "Release 上的安装包和本地不一致"; exit 1 }
 
       - name: 截图推送到 ci-shots 分支
         if: always() && github.ref_type == 'branch'
