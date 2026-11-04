@@ -42,6 +42,11 @@ public partial class MainWindow : Window
             grip.DragDelta += (_, _) => ResizeHeight(grip == View.TopResizeGrip);
             grip.DragCompleted += (_, e) => FinishHeightDrag(e.Canceled);
         }
+        // 解锁时双击底部手柄，恢复到刚好装下内容的最适合高度
+        View.BottomResizeGrip.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            if (e.ClickCount == 2) RestoreFittedHeight();
+        };
         vm.PropertyChanged += OnVmChanged;
         Closed += (_, _) => vm.PropertyChanged -= OnVmChanged;
         ApplyHeightMode();
@@ -263,6 +268,23 @@ public partial class MainWindow : Window
         }
         EnsureOnScreen();
         if (_resizeCollapsed) _app.Ui.CollapsedHeight = Height;
+        else _app.Ui.ExpandedHeight = Height;
+        _app.SavePosition(Left, Top);
+    }
+
+    /// <summary>解锁时双击底部，把高度恢复到刚好装下内容的最适合高度。</summary>
+    private void RestoreFittedHeight()
+    {
+        var vm = View.Vm;
+        if (vm is not { Locked: false }) return;
+        bool collapsed = vm.Collapsed == true;
+        double fitted = Math.Min(Math.Ceiling(View.MinimumContentHeight()), MaxHeight);
+        _resizing = false;
+        SizeToContent = SizeToContent.Width;
+        MinHeight = fitted;
+        Height = fitted;
+        EnsureOnScreen();
+        if (collapsed) _app.Ui.CollapsedHeight = Height;
         else _app.Ui.ExpandedHeight = Height;
         _app.SavePosition(Left, Top);
     }
