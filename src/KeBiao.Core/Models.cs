@@ -166,6 +166,11 @@ public sealed class ScheduleData
     /// <summary>只对某一周对调单双（存该周周一的日期）。</summary>
     public List<DateOnly> FlippedWeeks { get; set; } = new();
 
+    /// <summary>
+    /// 下一节什么时候标“即将开始”：0 = 上一节下课后（课间、早上第一节前）就标；N = 开课前 N 分钟内才标。
+    /// </summary>
+    public int SoonMinutes { get; set; }
+
     public string ActiveTimetableId { get; set; } = "";
     public List<Timetable> Timetables { get; set; } = new();
 

@@ -130,19 +130,26 @@ public static class ScreenshotRunner
         });
         Try("27-对话框-调课范围", () =>
         {
-            var d = new ChoiceDialog("第1节 语文 ⇄ 第2节 历史", null, new[] { "仅今天", "以后每个周一都这样" });
+            var d = ChoiceDialog.CreateChoices("第1节 语文 ⇄ 第2节 历史", null, new[] { "仅今天", "以后每个周一都这样" });
             d.Show();
             Snap(d, "27-对话框-调课范围");
             d.Close();
         });
         Try("28-对话框-单双周", () =>
         {
-            var d = new ChoiceDialog("把本周改成单周", null, new[] { "只改本周", "改本学期（之后每周都跟着对调）" });
+            var d = ChoiceDialog.CreateChoices("把本周改成单周", null, new[] { "只改本周", "改本学期（之后每周都跟着对调）" });
             d.Show();
             Snap(d, "28-对话框-单双周");
             d.Close();
         });
         Try("29-菜单", () => MenuShot(app));
+        Try("28b-对话框-退出", () =>
+        {
+            var d = ChoiceDialog.CreateConfirm("退出课表？", "退出后桌面上不再显示课表。下次开机会自动启动（如果开启了开机启动），也可以从开始菜单打开。", "退出", true);
+            d.Show();
+            Snap(d, "28b-对话框-退出");
+            d.Close();
+        });
         Try("30-时间滚轮", () =>
         {
             var d = TimePickerDialog.CreateForPreview("第3节 上课", new TimeOnly(10, 25));

@@ -39,7 +39,8 @@ public sealed record Status(
 
 public static class ScheduleEngine
 {
-    public static readonly TimeSpan SoonWindow = TimeSpan.FromMinutes(10);
+    /// <summary>“即将开始”可选的提前分钟数，0 表示下课后就标。</summary>
+    public static readonly int[] SoonOptions = { 0, 5, 10, 15 };
 
     /// <summary>没有填开学日期时，用一个固定的周一作为单双周的基准。</summary>
     private static readonly DateOnly FallbackAnchor = new(2000, 1, 3);
@@ -175,7 +176,9 @@ public static class ScheduleEngine
 
         Lesson? current = plan.Lessons.LastOrDefault(l => l.Start <= time && time < l.End);
         Lesson? next = plan.Lessons.FirstOrDefault(l => l.Start > time);
-        bool soon = next != null && (next.Start.ToTimeSpan() - time.ToTimeSpan()) <= SoonWindow;
+        bool soon = next != null && (data.SoonMinutes <= 0
+            ? current == null
+            : (next.Start.ToTimeSpan() - time.ToTimeSpan()) <= TimeSpan.FromMinutes(data.SoonMinutes));
         double progress = 0;
         if (current != null)
         {

@@ -215,6 +215,34 @@ public partial class SettingsWindow : Window
         }
         font.Child = fontRow;
 
+        var soon = new Border
+        {
+            Background = (Brush)FindResource("SurfaceAlt"),
+            CornerRadius = new CornerRadius(10),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Padding = new Thickness(2),
+        };
+        var soonRow = new StackPanel { Orientation = Orientation.Horizontal };
+        foreach (var m in ScheduleEngine.SoonOptions)
+        {
+            int minutes = m;
+            var rb = new RadioButton
+            {
+                Content = m == 0 ? "上一节下课后" : $"提前 {m} 分钟",
+                GroupName = "soon",
+                Style = (Style)FindResource("Segment"),
+                IsChecked = Data.SoonMinutes == m,
+            };
+            rb.Checked += (_, _) =>
+            {
+                if (Data.SoonMinutes == minutes) return;
+                Data.SoonMinutes = minutes;
+                _app.Commit(minutes == 0 ? "即将开始：上一节下课后提示" : $"即将开始：提前 {minutes} 分钟提示");
+            };
+            soonRow.Children.Add(rb);
+        }
+        soon.Child = soonRow;
+
         var top = new CheckBox { Content = "始终显示在最上层", IsChecked = _app.Ui.Topmost };
         top.Checked += (_, _) => _app.SetTopmost(true);
         top.Unchecked += (_, _) => _app.SetTopmost(false);
@@ -233,6 +261,7 @@ public partial class SettingsWindow : Window
         };
         // 课表里没有任何单双周的课时，不显示单双周设置
         if (showParity) rows.Add(("单双周", Row(parityText, flip)));
+        rows.Add(("即将开始", soon));
         rows.Add(("字号", font));
         rows.Add(("显示", topPanel));
         rows.Add(("启动", auto));
@@ -449,7 +478,7 @@ public partial class SettingsWindow : Window
             var info = b;
             var restore = Btn("恢复", () =>
             {
-                if (!ChoiceDialog.Confirm($"恢复到 {info.SavedAt:M月d日 HH:mm} 的版本？", "当前版本也会先存一份，恢复错了还能再恢复回来。", "恢复")) return;
+                if (!ChoiceDialog.Confirm($"恢复到 {info.SavedAt:M月d日 HH:mm} 的版本？", "当前版本也会先存一份，恢复错了还能再恢复回来。", "恢复", danger: false)) return;
                 var d = _app.Store.ReadBackup(info);
                 if (d == null) { ChoiceDialog.Info("恢复失败", "这个版本的文件已损坏。"); return; }
                 _app.ReplaceData(d, $"恢复到 {info.SavedAt:M月d日 HH:mm} 的版本");

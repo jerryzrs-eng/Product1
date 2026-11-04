@@ -25,6 +25,8 @@ public partial class App : Application
         Thread.CurrentThread.CurrentUICulture = zh;
         FrameworkElement.LanguageProperty.OverrideMetadata(typeof(FrameworkElement),
             new FrameworkPropertyMetadata(System.Windows.Markup.XmlLanguage.GetLanguage("zh-CN")));
+        EventManager.RegisterClassHandler(typeof(System.Windows.Controls.DatePicker), FrameworkElement.LoadedEvent,
+            new RoutedEventHandler((sender, _) => CenterDatePickerText((System.Windows.Controls.DatePicker)sender)));
         var args = e.Args;
 
         int shot = Array.IndexOf(args, "--screenshot");
@@ -74,6 +76,18 @@ public partial class App : Application
 
         Listen(ShowEventName, () => _controller.OpenSettings(null));
         Listen(ExitEventName, () => _controller.ExitQuietly());
+    }
+
+    /// <summary>系统自带的日期框把文字贴在顶部，这里把里面的输入区改成垂直居中。</summary>
+    private static void CenterDatePickerText(System.Windows.Controls.DatePicker dp)
+    {
+        dp.ApplyTemplate();
+        if (dp.Template?.FindName("PART_TextBox", dp) is not System.Windows.Controls.Primitives.DatePickerTextBox tb) return;
+        tb.VerticalContentAlignment = VerticalAlignment.Center;
+        tb.VerticalAlignment = VerticalAlignment.Stretch;
+        tb.ApplyTemplate();
+        foreach (var part in new[] { "PART_ContentHost", "PART_Watermark" })
+            if (tb.Template?.FindName(part, tb) is FrameworkElement fe) fe.VerticalAlignment = VerticalAlignment.Center;
     }
 
     private void Listen(string name, Action action)

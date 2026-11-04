@@ -50,16 +50,31 @@ public class EngineTests
     }
 
     [Theory]
-    [InlineData(10, 1, Phase.Break, false)]   // 截图时刻：离 10:25 还有 24 分钟，不应提示
+    [InlineData(10, 1, Phase.Break, true)]      // 默认：下课后下一节就标“即将开始”
+    [InlineData(7, 0, Phase.BeforeClass, true)]
+    [InlineData(10, 25, Phase.InClass, false)]
+    [InlineData(10, 40, Phase.InClass, false)]  // 上课中不标下一节
+    [InlineData(20, 0, Phase.AfterSchool, false)]
+    public void DefaultSoonAfterPreviousEnds(int h, int m, Phase phase, bool soon)
+    {
+        var s = ScheduleEngine.GetStatus(SampleData.Create(), At(Mon, h, m));
+        Assert.Equal(phase, s.Phase);
+        Assert.Equal(soon, s.NextIsSoon);
+    }
+
+    [Theory]
+    [InlineData(10, 1, Phase.Break, false)]   // 设成 10 分钟：离 10:25 还有 24 分钟，不提示
     [InlineData(10, 15, Phase.Break, true)]   // 刚好 10 分钟
     [InlineData(10, 14, Phase.Break, false)]
     [InlineData(10, 25, Phase.InClass, false)]
     [InlineData(7, 0, Phase.BeforeClass, false)]
     [InlineData(20, 0, Phase.AfterSchool, false)]
     [InlineData(18, 0, Phase.Break, false)]    // 18:40 还有晚自习
-    public void StatusAtTimes(int h, int m, Phase phase, bool soon)
+    public void StatusAtTimesWith10Minutes(int h, int m, Phase phase, bool soon)
     {
-        var s = ScheduleEngine.GetStatus(SampleData.Create(), At(Mon, h, m));
+        var data = SampleData.Create();
+        data.SoonMinutes = 10;
+        var s = ScheduleEngine.GetStatus(data, At(Mon, h, m));
         Assert.Equal(phase, s.Phase);
         Assert.Equal(soon, s.NextIsSoon);
     }
@@ -67,7 +82,9 @@ public class EngineTests
     [Fact]
     public void InClassWithNextSoon()
     {
-        var s = ScheduleEngine.GetStatus(SampleData.Create(), At(Mon, 17, 7));
+        var data = SampleData.Create();
+        data.SoonMinutes = 10; // 课间只有 5 分钟，上一节还没下课就会提示
+        var s = ScheduleEngine.GetStatus(data, At(Mon, 17, 7));
         Assert.Equal("语文", s.Current!.Name);
         Assert.Equal("生物/政治", s.Next!.Name);
         Assert.True(s.NextIsSoon);

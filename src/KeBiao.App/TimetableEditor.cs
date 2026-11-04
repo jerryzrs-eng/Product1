@@ -20,8 +20,8 @@ public sealed class TimetableEditor
     private Timetable _tt;
     private BellSchedule _bell;
 
-    private readonly ComboBox _tables = new() { Width = 240, Margin = new Thickness(0, 0, 12, 0) };
-    private readonly ComboBox _bells = new() { Width = 240, Margin = new Thickness(0, 0, 12, 0) };
+    private readonly ComboBox _tables = new();
+    private readonly ComboBox _bells = new();
     private readonly Button _useTable;
     private readonly Button _useBell;
     private readonly Grid _grid = new();
@@ -46,25 +46,26 @@ public sealed class TimetableEditor
         DockPanel.SetDock(title, Dock.Top);
         root.Children.Add(title);
 
-        _useTable = MakeButton("设为当前课表", UseTable);
+        // 两行工具条按同样的列对齐，按钮一样大
+        _useTable = ToolButton("设为当前", UseTable);
         var tableBar = Bar("课表", _tables, _useTable,
-            MakeButton("新建", NewTable), MakeButton("复制", CopyTable), MakeButton("重命名", RenameTable), MakeButton("删除", DeleteTable, "DangerButton"));
+            ToolButton("新建", NewTable), ToolButton("复制", CopyTable), ToolButton("重命名", RenameTable), ToolButton("删除", DeleteTable, "DangerButton"));
         DockPanel.SetDock(tableBar, Dock.Top);
         root.Children.Add(tableBar);
 
-        _useBell = MakeButton("设为使用中", UseBell);
+        _useBell = ToolButton("设为当前", UseBell);
         var bellBar = Bar("作息", _bells, _useBell,
-            MakeButton("复制为新作息", CopyBell), MakeButton("重命名", RenameBell), MakeButton("删除", DeleteBell, "DangerButton"));
-        bellBar.Margin = new Thickness(0, 0, 0, 16);
+            null, ToolButton("复制", CopyBell), ToolButton("重命名", RenameBell), ToolButton("删除", DeleteBell, "DangerButton"));
+        bellBar.Margin = new Thickness(0, 0, 0, 18);
         DockPanel.SetDock(bellBar, Dock.Top);
         root.Children.Add(bellBar);
 
         var bottom = new DockPanel { Margin = new Thickness(0, 14, 0, 0), LastChildFill = false };
-        bottom.Children.Add(MakeButton("添加一节", AddRow));
-        bottom.Children.Add(MakeButton("删除最后一节", RemoveRow));
-        var save = MakeButton("保存", () => TrySave(), "PrimaryButton");
+        bottom.Children.Add(BottomButton("添加一节", AddRow));
+        bottom.Children.Add(BottomButton("删除最后一节", RemoveRow));
+        var save = BottomButton("保存", () => TrySave(), "PrimaryButton");
         save.Margin = new Thickness(0);
-        var discard = MakeButton("放弃修改", Discard);
+        var discard = BottomButton("放弃修改", Discard);
         DockPanel.SetDock(save, Dock.Right);
         DockPanel.SetDock(discard, Dock.Right);
         bottom.Children.Add(save);
@@ -101,13 +102,48 @@ public sealed class TimetableEditor
         BuildGrid();
     }
 
-    private static WrapPanel Bar(string label, ComboBox combo, params Button[] buttons)
+    private const double ToolWidth = 96, ControlHeight = 44;
+
+    private static Grid Bar(string label, ComboBox combo, params Button?[] buttons)
     {
-        var bar = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
-        bar.Children.Add(new TextBlock { Text = label, Style = (Style)Application.Current.FindResource("FieldLabel"), Width = 48 });
+        var bar = new Grid { Margin = new Thickness(0, 0, 0, 10), HorizontalAlignment = HorizontalAlignment.Left };
+        bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
+        bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(252) });
+        var l = new TextBlock { Text = label, Style = (Style)Application.Current.FindResource("FieldLabel") };
+        bar.Children.Add(l);
+        combo.Height = ControlHeight;
+        combo.Width = 240;
+        combo.Margin = new Thickness(0);
+        combo.HorizontalAlignment = HorizontalAlignment.Left;
+        Grid.SetColumn(combo, 1);
         bar.Children.Add(combo);
-        foreach (var b in buttons) bar.Children.Add(b);
+        for (int i = 0; i < buttons.Length; i++)
+        {
+            bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(ToolWidth + 10) });
+            if (buttons[i] is not { } b) continue; // 空位：让两行按钮上下对齐
+            Grid.SetColumn(b, 2 + i);
+            bar.Children.Add(b);
+        }
         return bar;
+    }
+
+    private static Button ToolButton(string text, Action onClick, string style = "BaseButton")
+    {
+        var b = MakeButton(text, onClick, style);
+        b.Width = ToolWidth;
+        b.MinWidth = ToolWidth;
+        b.Height = ControlHeight;
+        b.Padding = new Thickness(0);
+        return b;
+    }
+
+    private static Button BottomButton(string text, Action onClick, string style = "BaseButton")
+    {
+        var b = MakeButton(text, onClick, style);
+        b.Width = 132;
+        b.Height = ControlHeight;
+        b.Padding = new Thickness(0);
+        return b;
     }
 
     private static Button MakeButton(string text, Action onClick, string style = "BaseButton")
