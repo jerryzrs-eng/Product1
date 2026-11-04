@@ -122,6 +122,28 @@
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
+        <Style x:Key="HeightGrip" TargetType="Thumb">
+            <Setter Property="Height" Value="8" />
+            <Setter Property="Cursor" Value="SizeNS" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border Background="Transparent" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding Expanded}" Value="True" />
+                        <Condition Binding="{Binding Locked}" Value="False" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Visibility" Value="Visible" />
+                </MultiDataTrigger>
+            </Style.Triggers>
+        </Style>
     </UserControl.Resources>
 
     <Grid>
@@ -165,7 +187,7 @@
                                Foreground="{StaticResource InkSoft}" TextWrapping="Wrap"
                                Visibility="{Binding HasFooterText, Converter={StaticResource Vis}}" />
                     <Grid>
-                        <TextBlock Text="{Binding EmptyText}" FontSize="20" Foreground="{StaticResource InkSoft}" TextAlignment="Center"
+                        <TextBlock x:Name="EmptyMessage" Text="{Binding EmptyText}" FontSize="20" Foreground="{StaticResource InkSoft}" TextAlignment="Center"
                                    HorizontalAlignment="Center" Margin="20,36,20,30" LineHeight="32"
                                    Visibility="{Binding HasEmptyText, Converter={StaticResource Vis}}" />
                         <ScrollViewer x:Name="RowsScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
@@ -187,6 +209,8 @@
                         <Button x:Name="ExpandButton" Style="{StaticResource IconButton}" Content="&#xE70D;" ToolTip="展开" />
                     </StackPanel>
                 </Grid>
+                <Thumb x:Name="TopResizeGrip" Style="{StaticResource HeightGrip}" VerticalAlignment="Top" Margin="12,0" />
+                <Thumb x:Name="BottomResizeGrip" Style="{StaticResource HeightGrip}" VerticalAlignment="Bottom" Margin="12,0" />
             </Grid>
         </Border>
         <Border Margin="14,10,14,18" CornerRadius="24" BorderThickness="2" BorderBrush="{StaticResource Accent}" IsHitTestVisible="False"

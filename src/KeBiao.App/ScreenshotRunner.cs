@@ -39,7 +39,7 @@ public static class ScreenshotRunner
         Try("04-折叠-上课中且下节即将开始-17点07", () => View("04-折叠-上课中且下节即将开始-17点07", sample, At(Mon, 17, 7), collapsed: true));
         Try("05-折叠-课间-10点18", () => View("05-折叠-课间-10点18", sample, At(Mon, 10, 18), collapsed: true));
         Try("06-折叠-课间未到10分钟-10点01", () => View("06-折叠-课间未到10分钟-10点01", sample, At(Mon, 10, 1), collapsed: true));
-        Try("07-折叠-放学后", () => View("07-折叠-放学后", sample, At(Mon, 18, 30), collapsed: true));
+        Try("07-折叠-放学后", () => View("07-折叠-放学后", sample, At(Mon, 19, 31), collapsed: true));
         Try("08-展开-放学后", () => View("08-展开-放学后", sample, At(Mon, 18, 30)));
         Try("09-展开-周六无课", () => View("09-展开-周六无课", sample, At(Mon.AddDays(5), 9, 0)));
         Try("10-展开-周日按周五上课", () =>
@@ -70,6 +70,8 @@ public static class ScreenshotRunner
             ScheduleEngine.SetOverride(d, Mon, DayOverrideKind.UseTimetable, timetableId: exam.Id);
             View("19b-展开-考试课表", d, At(Mon, 9, 0));
         });
+
+        CheckLessonFollowing(sample);
 
         // 设置窗口
         var tmp = Path.Combine(Path.GetTempPath(), "kebiao-shots-" + Guid.NewGuid().ToString("N"));
@@ -195,6 +197,47 @@ public static class ScreenshotRunner
             Child = view,
         };
         RenderElement(host, name);
+    }
+
+    private static void CheckLessonFollowing(ScheduleData data)
+    {
+        var vm = new ScheduleViewModel();
+        var view = new ScheduleView { DataContext = vm };
+        var window = new Window
+        {
+            Content = view, Width = 350, Height = 350, WindowStyle = WindowStyle.None,
+            ShowInTaskbar = false, ShowActivated = false,
+        };
+        window.Show();
+        try
+        {
+            void CheckAt(int hour, int minute)
+            {
+                vm.Update(data, At(Mon, hour, minute));
+                window.UpdateLayout();
+                Pump();
+                foreach (int? period in new[] { vm.VisiblePeriods.Current, vm.VisiblePeriods.Next })
+                {
+                    int index = vm.Rows.ToList().FindIndex(r => r.PeriodIndex == period);
+                    var row = (FrameworkElement)view.RowsList.ItemContainerGenerator.ContainerFromIndex(index);
+                    double top = row.TranslatePoint(new Point(), view.RowsList).Y;
+                    double offset = view.RowsScroller.VerticalOffset;
+                    if (top < offset - 1 || top + row.ActualHeight > offset + view.RowsScroller.ViewportHeight + 1)
+                        throw new InvalidOperationException("自动滚动后，当前课程或下一课程不在可见范围内。");
+                }
+            }
+
+            CheckAt(10, 40);
+            double before = view.RowsScroller.VerticalOffset;
+            CheckAt(14, 50);
+            if (view.RowsScroller.VerticalOffset <= before)
+                throw new InvalidOperationException("课程推进后，展开列表没有向下滚动。");
+            Snap(window, "19c-展开-自动跟随");
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     private static void RenderElement(FrameworkElement e, string name)

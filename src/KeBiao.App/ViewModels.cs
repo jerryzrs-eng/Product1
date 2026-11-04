@@ -74,6 +74,7 @@ public sealed class ScheduleViewModel : Observable
     private bool _locked;
     private bool _editMode;
     private double _scale = 1.0;
+    private (int? Current, int? Next) _visiblePeriods;
 
     public string ClassName { get => _className; set => Set(ref _className, value); }
     public string DateText { get => _dateText; set => Set(ref _dateText, value); }
@@ -88,6 +89,12 @@ public sealed class ScheduleViewModel : Observable
     public bool Locked { get => _locked; set => Set(ref _locked, value); }
     public bool EditMode { get => _editMode; set => Set(ref _editMode, value); }
     public double Scale { get => _scale; set => Set(ref _scale, value); }
+
+    public (int? Current, int? Next) VisiblePeriods
+    {
+        get => _visiblePeriods;
+        private set => Set(ref _visiblePeriods, value);
+    }
 
     public ObservableCollection<LessonRow> Rows { get; } = new();
     public ObservableCollection<LessonRow> CompactRows { get; } = new();
@@ -123,6 +130,7 @@ public sealed class ScheduleViewModel : Observable
             rows.Add(MakeRow(l, st, progress, false));
         }
         Sync(Rows, rows);
+        VisiblePeriods = (s.Current?.Index, s.Next?.Index);
 
         string? later = s.LaterFirst != null && s.LaterDate is { } ld
             ? $"{DayLabel(DateOnly.FromDateTime(now), ld)} {s.LaterFirst.Name} {s.LaterFirst.Start:HH\\:mm}"

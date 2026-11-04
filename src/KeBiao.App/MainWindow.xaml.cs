@@ -23,6 +23,8 @@ public partial class MainWindow : Window
     private Point _downScreen;
     private double _downLeft, _downTop;
     private LessonRow? _dragRow, _dropRow;
+    private double _resizeStartY, _resizeStartHeight, _resizeStartTop;
+    private bool _resizing;
 
     public MainWindow(AppController app, ScheduleViewModel vm)
     {
@@ -33,6 +35,16 @@ public partial class MainWindow : Window
         View.LockClicked += (_, _) => _app.ToggleLock();
         View.CollapseClicked += (_, _) => _app.ToggleCollapse();
         View.DoneClicked += (_, _) => _app.SetEditMode(false);
+        View.ExpandedLayoutChanged += (_, _) => UpdateMinimumHeight();
+        foreach (var grip in new[] { View.TopResizeGrip, View.BottomResizeGrip })
+        {
+            grip.DragStarted += (_, _) => StartHeightDrag();
+            grip.DragDelta += (_, _) => ResizeHeight(grip == View.TopResizeGrip);
+            grip.DragCompleted += (_, e) => FinishHeightDrag(e.Canceled);
+        }
+        vm.PropertyChanged += OnVmChanged;
+        Closed += (_, _) => vm.PropertyChanged -= OnVmChanged;
+        ApplyHeightMode();
 
         _longPress.Tick += (_, _) => OnLongPress();
         PreviewMouseLeftButtonDown += OnDown;
@@ -102,7 +114,7 @@ public partial class MainWindow : Window
 
     private void OnDown(object sender, MouseButtonEventArgs e)
     {
-        if (ScheduleView.IsOnButton(e.OriginalSource as DependencyObject)) return;
+        if (ScheduleView.IsOnInteractiveControl(e.OriginalSource as DependencyObject)) return;
         _pressed = true;
         _dragging = false;
         _downScreen = ScreenDip(e);
@@ -177,6 +189,79 @@ public partial class MainWindow : Window
         if (_dropRow != null) _dropRow.IsDropTarget = false;
         _dragRow = _dropRow = null;
         if (IsMouseCaptured) ReleaseMouseCapture();
+    }
+
+    // ---------- 拖动边框调高度 ----------
+
+    private void OnVmChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(ScheduleViewModel.Collapsed)) ApplyHeightMode();
+    }
+
+    private void ApplyHeightMode()
+    {
+        MinHeight = 0;
+        if (View.Vm?.Expanded == true && _app.Ui.ExpandedHeight is double height && height > 0 && double.IsFinite(height))
+        {
+            SizeToContent = SizeToContent.Width;
+            Height = Math.Min(height, MaxHeight);
+        }
+        else
+        {
+            Height = double.NaN;
+            SizeToContent = SizeToContent.WidthAndHeight;
+        }
+    }
+
+    private void UpdateMinimumHeight()
+    {
+        if (SizeToContent != SizeToContent.Width) return;
+        var minimum = Math.Min(Math.Ceiling(View.MinimumExpandedHeight()), MaxHeight);
+        if (Math.Abs(MinHeight - minimum) >= 1) MinHeight = minimum;
+    }
+
+    private double PointerScreenY()
+    {
+        var p = PointToScreen(Mouse.GetPosition(this));
+        return (PresentationSource.FromVisual(this)?.CompositionTarget?.TransformFromDevice.Transform(p) ?? p).Y;
+    }
+
+    private void StartHeightDrag()
+    {
+        _resizeStartY = PointerScreenY();
+        _resizeStartHeight = ActualHeight;
+        _resizeStartTop = Top;
+        _resizing = false;
+    }
+
+    private void ResizeHeight(bool topEdge)
+    {
+        if (View.Vm is not { Expanded: true, Locked: false }) return;
+        double delta = PointerScreenY() - _resizeStartY;
+        double minimum = Math.Min(View.MinimumExpandedHeight(), MaxHeight);
+        double height = Math.Clamp(_resizeStartHeight + (topEdge ? -delta : delta), minimum, MaxHeight);
+        if (Math.Abs(height - ActualHeight) < 0.5) return;
+
+        _resizing = true;
+        SizeToContent = SizeToContent.Width;
+        MinHeight = minimum;
+        Height = height;
+        if (topEdge) Top = _resizeStartTop + _resizeStartHeight - height;
+    }
+
+    private void FinishHeightDrag(bool canceled)
+    {
+        if (!_resizing) return;
+        _resizing = false;
+        if (canceled)
+        {
+            Top = _resizeStartTop;
+            ApplyHeightMode();
+            return;
+        }
+        EnsureOnScreen();
+        _app.Ui.ExpandedHeight = Height;
+        _app.SavePosition(Left, Top);
     }
 
     /// <summary>窗口至少要有一部分留在屏幕内（换分辨率、拔掉副屏之后）。</summary>

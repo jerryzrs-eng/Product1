@@ -5,11 +5,12 @@ using KeBiao.Core;
 
 namespace KeBiao.App;
 
-/// <summary>界面状态（位置、折叠、锁定、字号、置顶），和课表数据分开保存，不进历史版本。</summary>
+/// <summary>界面状态（位置、高度、折叠、锁定、字号、置顶），和课表数据分开保存，不进历史版本。</summary>
 public sealed class UiState
 {
     public double? Left { get; set; }
     public double? Top { get; set; }
+    public double? ExpandedHeight { get; set; }
     public bool Collapsed { get; set; }
     public bool Locked { get; set; }
     /// <summary>-2 = 特小，-1 = 小，0 = 标准，1 = 大，2 = 特大。</summary>
