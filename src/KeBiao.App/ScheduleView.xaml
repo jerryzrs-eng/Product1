@@ -160,12 +160,57 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
                         <StackPanel>
                             <TextBlock Text="{Binding ClassName}" FontSize="30" FontWeight="Bold" Foreground="{StaticResource Ink}"
                                        TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding DateText}" FontSize="15" FontWeight="SemiBold" Margin="0,4,0,0"
-                                       Foreground="{StaticResource InkSoft}" TextWrapping="Wrap" />
                         </StackPanel>
+                            <!-- 日期行单独占满整行宽度，箭头紧跟在日期后面 -->
+                            <Grid Grid.Row="1" Grid.ColumnSpan="2" Margin="0,4,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding DateText}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap"
+                                           VerticalAlignment="Center" MaxWidth="250">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="{StaticResource InkSoft}" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsPreview}" Value="True">
+                                                    <Setter Property="Foreground" Value="{StaticResource AccentInk}" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <!-- 看下一天 / 回到今天 -->
+                                <Button x:Name="DayButton" Grid.Column="1" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                        Margin="2,-6,0,-6">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                            <Setter Property="Width" Value="34" />
+                                            <Setter Property="Height" Value="34" />
+                                            <Setter Property="FontSize" Value="13" />
+                                            <Setter Property="Content" Value="&#xE76C;" />
+                                            <Setter Property="ToolTip" Value="看下一天的课" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsPreview}" Value="True">
+                                                    <Setter Property="Content" Value="&#xE76B;" />
+                                                    <Setter Property="ToolTip" Value="回到今天" />
+                                                    <Setter Property="Foreground" Value="{StaticResource AccentInk}" />
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding EditMode}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                            </Grid>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top"
                                     Visibility="{Binding EditMode, Converter={StaticResource NotVis}}">
                             <Button x:Name="LockButton" Style="{StaticResource IconButton}" />
@@ -175,7 +220,16 @@
                                 MinHeight="40" MinWidth="72" Content="完成"
                                 Visibility="{Binding EditMode, Converter={StaticResource Vis}}" />
                     </Grid>
-                    <Rectangle DockPanel.Dock="Top" Height="1" Fill="{StaticResource Hairline}" Margin="22,0,22,6" />
+                    <Grid DockPanel.Dock="Top" Margin="22,0,22,6">
+                        <Rectangle Height="1" Fill="{StaticResource Hairline}" VerticalAlignment="Center" />
+                        <!-- 查看下一天时：一条渐短的线，走完自动回到今天 -->
+                        <Rectangle Height="2" Fill="{StaticResource Accent}" RadiusX="1" RadiusY="1" VerticalAlignment="Center"
+                                   RenderTransformOrigin="0,0.5" Visibility="{Binding IsPreview, Converter={StaticResource Vis}}">
+                            <Rectangle.RenderTransform>
+                                <ScaleTransform ScaleX="{Binding PreviewRemaining}" />
+                            </Rectangle.RenderTransform>
+                        </Rectangle>
+                    </Grid>
                     <TextBlock DockPanel.Dock="Top" Text="拖动一节课到另一节上，两节互换" FontSize="13" Margin="22,2,22,6"
                                Foreground="{StaticResource AccentInk}"
                                Visibility="{Binding EditMode, Converter={StaticResource Vis}}" />

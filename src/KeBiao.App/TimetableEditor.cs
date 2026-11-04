@@ -66,7 +66,7 @@ public sealed class TimetableEditor
 
         _useBell = ToolButton("设为当前", UseBell);
         var bellBar = Bar("作息", _bells, _useBell,
-            null, ToolButton("复制", CopyBell), ToolButton("重命名", RenameBell), ToolButton("删除", DeleteBell, "DangerButton"));
+            ToolButton("新建", NewBell), ToolButton("复制", CopyBell), ToolButton("重命名", RenameBell), ToolButton("删除", DeleteBell, "DangerButton"));
         bellBar.Margin = new Thickness(0, 0, 0, 18);
         DockPanel.SetDock(bellBar, Dock.Top);
         root.Children.Add(bellBar);
@@ -562,6 +562,32 @@ public sealed class TimetableEditor
         _tt.ActiveBellId = _bell.Id;
         Dirty = true;
         RefreshBars();
+    }
+
+    /// <summary>
+    /// 新建一套空白作息：节数和节次名沿用当前作息，保证和这张课表的科目一行对一行；
+    /// 时间从 08:00 起按 40 分钟一节、课间 10 分钟排好，再逐个改成实际时间。
+    /// </summary>
+    private void NewBell()
+    {
+        var name = TextInputDialog.Ask("新作息的名称", "新作息");
+        if (string.IsNullOrWhiteSpace(name)) return;
+        var bell = new BellSchedule { Name = name.Trim() };
+        int count = Math.Max(_bell.Periods.Count, 1);
+        var start = new TimeOnly(8, 0);
+        for (int i = 0; i < count; i++)
+        {
+            var end = start.AddMinutes(40);
+            if (end < start) end = new TimeOnly(23, 59); // 跨过午夜就停在 23:59
+            bell.Periods.Add(new Period(start, end, i < _bell.Periods.Count ? _bell.Periods[i].Label : null));
+            var next = end.AddMinutes(10);
+            start = next < end ? new TimeOnly(23, 59) : next;
+        }
+        _tt.Bells.Add(bell);
+        _bell = bell;
+        Dirty = true;
+        RefreshBars();
+        BuildGrid();
     }
 
     private void CopyBell()

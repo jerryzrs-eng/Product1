@@ -174,15 +174,57 @@ public static class ScreenshotRunner
             d.Close();
         });
 
+        Try("40-展开-看下一天", () => View("40-展开-看下一天", sample, At(Mon, 18, 30), preview: Mon.AddDays(1)));
+        Try("41-展开-周五看下一天-跳过周末", () => View("41-展开-周五看下一天-跳过周末", sample, At(Mon.AddDays(4), 18, 30),
+            preview: ScheduleViewModel.NextSchoolDay(sample, Mon.AddDays(4))));
+        Try("42-主窗口-双击底部自动适应", () => FitCheck(tmp + "-fit", sample, log));
+
         File.WriteAllText(Path.Combine(_dir, "log.txt"), log.ToString());
         try { Directory.Delete(tmp, true); } catch { }
     }
 
     private static DateTime At(DateOnly d, int h, int m) => d.ToDateTime(new TimeOnly(h, m));
 
-    private static void View(string name, ScheduleData data, DateTime now, bool collapsed = false, bool edit = false, double scale = 1.0, bool locked = false)
+    /// <summary>
+    /// 实测主窗口：先设成装不下的固定高度，再执行“双击底部自动适应”，检查是否还有课被藏在下面。
+    /// 当天 12 节课（课多的情况），时间在放学后。
+    /// </summary>
+    private static void FitCheck(string dir, ScheduleData data, System.Text.StringBuilder log)
     {
-        var vm = new ScheduleViewModel { Collapsed = collapsed, EditMode = edit, Scale = scale, Locked = locked };
+        var store = new DataStore(dir);
+        store.Save(data.DeepClone(), "截图");
+        var app = new AppController(store, () => At(Mon, 20, 0));
+        app.Ui.Locked = false;
+        app.Ui.Collapsed = false;
+        app.Ui.ExpandedHeight = 300;
+        app.Vm.Locked = false;
+        app.Vm.Collapsed = false;
+        var w = new MainWindow(app, app.Vm) { Left = 40, Top = 40, MaxHeight = SystemParameters.WorkArea.Height };
+        w.Show();
+        try
+        {
+            w.UpdateLayout();
+            Pump();
+            log.AppendLine($"     固定高度 300：可滚动 {w.View.RowsScroller.ScrollableHeight:0}");
+            Snap(w, "42a-主窗口-固定高度太矮");
+            w.FitToContent();
+            Pump();
+            double hidden = w.View.RowsScroller.ScrollableHeight;
+            log.AppendLine($"     自动适应后：窗口高 {w.ActualHeight:0}，工作区高 {SystemParameters.WorkArea.Height:0}，还需滚动 {hidden:0}");
+            Snap(w, "42b-主窗口-自动适应后");
+            if (hidden > 1 && w.ActualHeight < SystemParameters.WorkArea.Height - 1)
+                throw new InvalidOperationException($"自动适应后仍有 {hidden:0} 的内容被藏住");
+        }
+        finally
+        {
+            app.AllowWindowClose();
+            w.Close();
+        }
+    }
+
+    private static void View(string name, ScheduleData data, DateTime now, bool collapsed = false, bool edit = false, double scale = 1.0, bool locked = false, DateOnly? preview = null)
+    {
+        var vm = new ScheduleViewModel { Collapsed = collapsed, EditMode = edit, Scale = scale, Locked = locked, PreviewDate = preview, PreviewRemaining = 0.6 };
         vm.Update(data, now);
         if (edit && vm.Rows.Count > 3)
         {
