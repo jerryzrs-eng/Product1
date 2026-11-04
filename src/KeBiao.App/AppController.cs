@@ -174,7 +174,7 @@ public sealed class AppController
         Commit(reason);
     }
 
-    public bool TrySaveImportedData(ScheduleData data, string reason)
+    public bool TrySaveData(ScheduleData data, string reason)
     {
         try
         {
@@ -182,7 +182,7 @@ public sealed class AppController
         }
         catch (Exception ex)
         {
-            ChoiceDialog.Info("导入保存失败", ex.Message);
+            ChoiceDialog.Info("保存失败", ex.Message);
             return false;
         }
         Data = data;
@@ -294,8 +294,9 @@ public sealed class AppController
     public void SwitchTimetable(string id)
     {
         if (Data.ActiveTimetableId == id || Data.FindTimetable(id) is not { } t) return;
-        Data.ActiveTimetableId = id;
-        Commit($"切换到课表“{t.Name}”");
+        var data = Data.DeepClone();
+        data.ActiveTimetableId = id;
+        TrySaveData(data, $"切换到课表“{t.Name}”");
     }
 
     public void ClearDay(DateOnly date)

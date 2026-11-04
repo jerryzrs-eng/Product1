@@ -56,7 +56,7 @@ internal sealed class BatchImportWindow : Window
             var draft = app.Data.DeepClone();
             foreach (var sheet in worksheets)
                 TimetableImporter.Apply(draft, sheet.Result, null, sheet.Name, false, false, false);
-            if (app.TrySaveImportedData(draft, $"批量导入 {worksheets.Count} 张课表"))
+            if (app.TrySaveData(draft, $"批量导入 {worksheets.Count} 张课表"))
                 DialogResult = true;
         };
 

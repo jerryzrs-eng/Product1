@@ -10,7 +10,7 @@ namespace KeBiao.App;
 
 /// <summary>
 /// “课表与作息”页：管理多张课表，每张课表自带若干套作息。
-/// 点时间格用滚轮选时间，点科目格弹出编辑面板；节次名可自定义。点“保存”才生效。
+/// 切换当前课表立即生效，课表与作息的编辑通过“保存”提交。
 /// </summary>
 public sealed class TimetableEditor
 {
@@ -24,11 +24,22 @@ public sealed class TimetableEditor
     private readonly ComboBox _bells = new();
     private readonly Button _useTable;
     private readonly Button _useBell;
+    private readonly Button _save;
     private readonly Grid _grid = new();
     private readonly List<Button> _timeButtons = new();
     private bool _loading;
 
-    public bool Dirty { get; private set; }
+    private bool _dirty;
+
+    public bool Dirty
+    {
+        get => _dirty;
+        private set
+        {
+            _dirty = value;
+            _save.IsEnabled = value;
+        }
+    }
     public UIElement Root { get; }
 
     private static Brush R(string key) => (Brush)Application.Current.FindResource(key);
@@ -63,12 +74,13 @@ public sealed class TimetableEditor
         var bottom = new DockPanel { Margin = new Thickness(0, 14, 0, 0), LastChildFill = false };
         bottom.Children.Add(BottomButton("添加一节", AddRow));
         bottom.Children.Add(BottomButton("删除最后一节", RemoveRow));
-        var save = BottomButton("保存", () => TrySave(), "PrimaryButton");
-        save.Margin = new Thickness(0);
+        _save = BottomButton("保存", () => TrySave(), "PrimaryButton");
+        _save.Margin = new Thickness(0);
+        _save.IsEnabled = false;
         var discard = BottomButton("放弃修改", Discard);
-        DockPanel.SetDock(save, Dock.Right);
+        DockPanel.SetDock(_save, Dock.Right);
         DockPanel.SetDock(discard, Dock.Right);
-        bottom.Children.Add(save);
+        bottom.Children.Add(_save);
         bottom.Children.Add(discard);
         DockPanel.SetDock(bottom, Dock.Bottom);
         root.Children.Add(bottom);
@@ -153,14 +165,14 @@ public sealed class TimetableEditor
         return b;
     }
 
-    private void RefreshBars()
+    internal void RefreshBars()
     {
         _loading = true;
         _tables.Items.Clear();
         foreach (var t in _draft.Timetables)
-            _tables.Items.Add(t.Id == _draft.ActiveTimetableId ? $"{t.Name}（当前）" : t.Name);
+            _tables.Items.Add(t.Id == _app.Data.ActiveTimetableId ? $"{t.Name}（当前）" : t.Name);
         _tables.SelectedIndex = _draft.Timetables.IndexOf(_tt);
-        _useTable.IsEnabled = _tt.Id != _draft.ActiveTimetableId;
+        _useTable.IsEnabled = _tt.Id != _app.Data.ActiveTimetableId;
 
         _bells.Items.Clear();
         foreach (var b in _tt.Bells)
@@ -405,6 +417,8 @@ public sealed class TimetableEditor
 
     public bool TrySave()
     {
+        if (!Dirty) return true;
+
         var all = new List<string>();
         foreach (var t in _draft.Timetables)
             foreach (var b in t.Bells)
@@ -422,12 +436,11 @@ public sealed class TimetableEditor
             if (t.Grid.Count > need) t.Grid.RemoveRange(need, t.Grid.Count - need);
         }
 
-        var data = _app.Data;
-        data.Timetables = _draft.Timetables;
-        data.ActiveTimetableId = _draft.ActiveTimetableId;
-        data.Normalize();
+        var data = _app.Data.DeepClone();
+        data.Timetables = _draft.DeepClone().Timetables;
+        if (!_app.TrySaveData(data, "编辑课表与作息")) return false;
         Dirty = false;
-        _app.Commit("编辑课表与作息");
+        RefreshBars();
         return true;
     }
 
@@ -480,9 +493,12 @@ public sealed class TimetableEditor
 
     private void UseTable()
     {
-        _draft.ActiveTimetableId = _tt.Id;
-        Dirty = true;
-        RefreshBars();
+        if (_app.Data.FindTimetable(_tt.Id) == null)
+        {
+            ChoiceDialog.Info("请先保存新课表", "保存后即可设为当前课表。");
+            return;
+        }
+        _app.SwitchTimetable(_tt.Id);
     }
 
     private void NewTable()
@@ -532,8 +548,7 @@ public sealed class TimetableEditor
         var body = days > 0 ? $"有 {days} 天的日期调整用到这张课表，会一起删除。" : null;
         if (!ChoiceDialog.Confirm($"删除课表“{_tt.Name}”？", body, "删除")) return;
         _draft.Timetables.Remove(_tt);
-        if (_draft.ActiveTimetableId == _tt.Id) _draft.ActiveTimetableId = _draft.Timetables[0].Id;
-        _tt = _draft.Active;
+        _tt = _draft.FindTimetable(_app.Data.ActiveTimetableId) ?? _draft.Timetables[0];
         _bell = _tt.ActiveBell;
         Dirty = true;
         RefreshBars();

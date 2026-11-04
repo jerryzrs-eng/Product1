@@ -44,7 +44,11 @@ public partial class SettingsWindow : Window
     /// <summary>数据在别处被改了（比如主界面调课），刷新当前页。</summary>
     public void OnDataChanged()
     {
-        if (_page == "table" && _editor?.Dirty == true) return; // 正在编辑的课表不打断
+        if (_page == "table" && _editor?.Dirty == true)
+        {
+            _editor.RefreshBars();
+            return;
+        }
         Navigate(_page, force: true);
     }
 
