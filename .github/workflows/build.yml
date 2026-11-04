@@ -103,7 +103,7 @@ jobs:
           $notes = "docs/更新说明/$tag.md"
           # 规则：每个版本必须有更新说明，并署名发布的 Agent
           if (-not (Test-Path $notes)) { "缺少更新说明 $notes，拒绝发布"; exit 1 }
-          if (-not (Select-String -Path $notes -Pattern "发布 Agent[：:]" -Quiet)) { "更新说明里没有“发布 Agent：名称”署名，拒绝发布"; exit 1 }
+          if (-not (Select-String -Path $notes -Pattern "发布 Agent[：:]" -Quiet)) { "更新说明缺少发布 Agent 署名，拒绝发布"; exit 1 }
           $exe = (Get-ChildItem dist\*.exe | Select-Object -First 1).FullName
           # 附件文件名只能用英文；“#”后面是 Release 页面上显示的中文名
           $asset = "$exe#课表安装包 $env:APP_VERSION"
