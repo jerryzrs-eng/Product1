@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+branch=$(git symbolic-ref --quiet --short HEAD)
+case "$branch" in
+  master|main) echo '请在任务分支提交' >&2; exit 1 ;;
+  agent/*)
+    if [ "$(git rev-parse --absolute-git-dir)" = "$(git rev-parse --path-format=absolute --git-common-dir)" ]; then
+      echo 'Agent 分支必须在独立 Worktree 提交' >&2
+      exit 1
+    fi ;;
+esac
+git diff --cached --check

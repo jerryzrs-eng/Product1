@@ -1,0 +1,41 @@
+name: master 合并协调
+
+on:
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: PR 编号
+        required: true
+        type: string
+      head_sha:
+        description: 已审核的完整 PR Head SHA
+        required: true
+        type: string
+
+concurrency:
+  group: kebiao-master-merge
+  queue: max
+
+permissions: {}
+
+jobs:
+  merge:
+    if: github.ref == 'refs/heads/master'
+    runs-on: windows-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 校验最新提交并尝试合并
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MERGE_ENABLED: ${{ vars.KEBIAO_ENABLE_MERGE_COORDINATOR }}
+          PR_NUMBER: ${{ inputs.pull_request }}
+          PR_HEAD: ${{ inputs.head_sha }}
+        run: ./.github/scripts/Invoke-MergeQueue.ps1 -PullRequest $env:PR_NUMBER -Head $env:PR_HEAD

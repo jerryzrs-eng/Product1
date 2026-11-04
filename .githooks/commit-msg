@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+case "$(git symbolic-ref --quiet --short HEAD)" in
+  agent/*)
+    for field in '开发 Agent' '开发模型' 'Agent 会话'; do
+      if ! grep -Eq "^$field[：:][[:space:]]*[^[:space:]*]" "$1"; then
+        echo "提交说明缺少字段 $field" >&2
+        exit 1
+      fi
+    done ;;
+esac
