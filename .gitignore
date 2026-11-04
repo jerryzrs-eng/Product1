@@ -5,3 +5,4 @@ dist/
 shots/
 *.user
 .vs/
+preview/
