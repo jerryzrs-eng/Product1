@@ -274,8 +274,10 @@ public class TimetableTests
         Assert.Equal(2, data.SchemaVersion);
         Assert.Single(data.DayOverrides);
         var json = System.Text.Json.JsonSerializer.Serialize(data, JsonOptions.Default);
-        Assert.DoesNotContain("\"Bells\": [", json.Replace("\"Bells\": [\n", "X")); // 旧字段不再写出
-        Assert.DoesNotContain("\"Timetable\":", json);
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        Assert.False(doc.RootElement.TryGetProperty("Bells", out _));      // 旧字段不再写出
+        Assert.False(doc.RootElement.TryGetProperty("Timetable", out _));
+        Assert.False(doc.RootElement.TryGetProperty("ActiveBellId", out _));
     }
 }
 
