@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+branch=$(git symbolic-ref --quiet --short HEAD || :)
+while read -r local_ref local_oid remote_ref remote_oid; do
+  case "$remote_ref" in
+    refs/heads/master|refs/heads/main|refs/tags/*)
+      echo "共享分支或标签需通过仓库协调流程处理 $remote_ref" >&2
+      exit 1 ;;
+    refs/heads/agent/*)
+      if [ "$local_ref" != "refs/heads/$branch" ] || [ "$local_ref" != "$remote_ref" ] ||
+         [ "$(git rev-parse --absolute-git-dir)" = "$(git rev-parse --path-format=absolute --git-common-dir)" ]; then
+        echo '请从任务 Worktree 推送同名分支' >&2
+        exit 1
+      fi ;;
+  esac
+  case "$remote_oid" in
+    0000000000000000000000000000000000000000) continue ;;
+  esac
+  if ! git merge-base --is-ancestor "$remote_oid" "$local_oid"; then
+    echo '远端包含本地尚未纳入的提交，请获取并检查差异' >&2
+    exit 1
+  fi
+done
