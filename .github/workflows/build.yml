@@ -3,7 +3,6 @@ name: 构建
 on:
   push:
     branches-ignore: ['ci-shots/**']
-    tags: ['v*']
   pull_request:
     branches: [master]
   merge_group:
@@ -13,6 +12,11 @@ on:
       release:
         description: '要发布的版本号（如 1.1.0），留空则只构建不发布'
         required: false
+        default: ''
+      commit_sha:
+        description: 正式发布时必填，经授权的完整 Commit SHA
+        required: false
+        type: string
         default: ''
 
 permissions:
@@ -26,10 +30,43 @@ jobs:
     outputs:
       release_tag: ${{ steps.version.outputs.release_tag }}
       app_version: ${{ steps.version.outputs.app_version }}
+      release_commit: ${{ steps.version.outputs.release_commit }}
       screenshots: ${{ steps.screenshots.outputs.artifact-id }}
+    permissions:
+      contents: read
+      actions: read
     steps:
+      - name: 固定发布版本与提交
+        id: version
+        shell: pwsh
+        env:
+          REQUESTED_RELEASE: ${{ inputs.release }}
+          REQUESTED_COMMIT: ${{ inputs.commit_sha }}
+        run: |
+          $version = '1.0.0'
+          $tag = ''
+          $commit = ''
+          if ($env:REQUESTED_RELEASE -or $env:REQUESTED_COMMIT) {
+            if ($env:GITHUB_EVENT_NAME -ne 'workflow_dispatch' -or $env:GITHUB_REF -cne 'refs/heads/master') {
+              throw '正式发布只能从 master 手动发起'
+            }
+            if ($env:GITHUB_RUN_ATTEMPT -ne '1') { throw '请重新提交发布请求并取得新的审批' }
+            $tag = 'v' + ([string]$env:REQUESTED_RELEASE).Trim().TrimStart('v')
+            if ($tag -cnotmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') { throw '请输入有效的发布版本' }
+            $commit = ([string]$env:REQUESTED_COMMIT).Trim().ToLowerInvariant()
+            if ($commit -notmatch '^[0-9a-f]{40}$') { throw '正式发布必须指定经授权的完整 Commit SHA' }
+            $version = $tag.Substring(1)
+          }
+          "APP_VERSION=$version" >> $env:GITHUB_ENV
+          "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+          "RELEASE_COMMIT=$commit" >> $env:GITHUB_ENV
+          "app_version=$version" >> $env:GITHUB_OUTPUT
+          "release_tag=$tag" >> $env:GITHUB_OUTPUT
+          "release_commit=$commit" >> $env:GITHUB_OUTPUT
+
       - uses: actions/checkout@v4
         with:
+          ref: ${{ steps.version.outputs.release_commit }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -45,32 +82,16 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: 版本号
-        id: version
-        shell: pwsh
-        env:
-          REQUESTED_RELEASE: ${{ inputs.release }}
-        run: |
-          $tag = if ($env:REQUESTED_RELEASE) { 'v' + $env:REQUESTED_RELEASE.Trim().TrimStart('v') } else { '' }
-          if ($env:GITHUB_REF_TYPE -eq 'tag') {
-            if ($tag -and $tag -cne $env:GITHUB_REF_NAME) { throw '输入的发布版本与 Git 标签不一致' }
-            $tag = $env:GITHUB_REF_NAME
-          }
-          if ($tag -and $tag -cnotmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
-            throw '发布版本必须使用 v主版本.次版本.修订号 格式'
-          }
-          $version = if ($tag) { $tag.Substring(1) } else { '1.0.0' }
-          "APP_VERSION=$version" >> $env:GITHUB_ENV
-          "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
-          "app_version=$version" >> $env:GITHUB_OUTPUT
-          "release_tag=$tag" >> $env:GITHUB_OUTPUT
-
       - name: 校验发布说明与关联提交
         if: env.RELEASE_TAG != ''
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ./.github/scripts/Test-ReleaseSource.ps1
-          ./.github/scripts/Test-ReleaseNotes.ps1 -Tag $env:RELEASE_TAG -Commit $env:GITHUB_SHA
+          ./.github/scripts/Test-ReleaseApproval.ps1
+          ./.github/scripts/Test-ReleaseNotes.ps1 -Tag $env:RELEASE_TAG -Commit $env:RELEASE_COMMIT
+          "等待仓库所有者审批。版本 $env:RELEASE_TAG，授权提交 $env:RELEASE_COMMIT" >> $env:GITHUB_STEP_SUMMARY
 
       - name: 单元测试
         run: dotnet test tests/KeBiao.Core.Tests -c Release
@@ -130,9 +151,10 @@ jobs:
           path: shots
 
   release:
-    name: 正式发布
+    name: 正式发布 ${{ needs.build.outputs.release_tag }}
     needs: build
-    if: needs.build.outputs.release_tag != '' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push')
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && needs.build.outputs.release_tag != ''
+    environment: kebiao-release
     runs-on: windows-latest
     timeout-minutes: 15
     concurrency:
@@ -140,12 +162,15 @@ jobs:
       queue: max
     permissions:
       contents: write
+      actions: read
     env:
+      RELEASE_COMMIT: ${{ needs.build.outputs.release_commit }}
       RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
       APP_VERSION: ${{ needs.build.outputs.app_version }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ needs.build.outputs.release_commit }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/download-artifact@v4
@@ -159,7 +184,8 @@ jobs:
         run: |
           $tag = $env:RELEASE_TAG
           ./.github/scripts/Test-ReleaseSource.ps1
-          ./.github/scripts/Test-ReleaseNotes.ps1 -Tag $tag -Commit $env:GITHUB_SHA
+          ./.github/scripts/Test-ReleaseApproval.ps1 -RequireApproval
+          ./.github/scripts/Test-ReleaseNotes.ps1 -Tag $tag -Commit $env:RELEASE_COMMIT
           $notes = "docs/更新说明/$tag.md"
           $exe = (Get-Item -LiteralPath "dist/KeBiao-Setup-$env:APP_VERSION.exe").FullName
           $name = Split-Path -Leaf $exe
@@ -171,7 +197,7 @@ jobs:
             ''
             '## 构建记录'
             ''
-            "- 构建提交：$env:GITHUB_SHA"
+            "- 构建提交：$env:RELEASE_COMMIT"
             "- GitHub Actions：$runUrl"
             "- 安装包 SHA-256：$hash"
           ) | Add-Content -LiteralPath $body -Encoding utf8
@@ -179,7 +205,7 @@ jobs:
           # 草稿通过附件校验后再公开。
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) { throw "版本 $tag 已有发布记录，请核查现有 Release 或草稿" }
-          gh release create $tag "$exe#课表安装包 $env:APP_VERSION" --draft --title "课表 $tag" --target $env:GITHUB_SHA --notes-file $body
+          gh release create $tag "$exe#课表安装包 $env:APP_VERSION" --draft --title "课表 $tag" --target $env:RELEASE_COMMIT --notes-file $body
           if ($LASTEXITCODE -ne 0) { throw '创建 Release 草稿失败，请检查该版本是否已经存在' }
           $checkDir = Join-Path $env:RUNNER_TEMP 'release-check'
           gh release download $tag --pattern $name --dir $checkDir
@@ -190,7 +216,7 @@ jobs:
           gh release edit $tag --draft=false
           if ($LASTEXITCODE -ne 0) { throw '公开 Release 失败' }
           $tagCommit = gh api "repos/$env:GITHUB_REPOSITORY/commits/$tag" --jq '.sha'
-          if ($LASTEXITCODE -ne 0 -or $tagCommit -ne $env:GITHUB_SHA) {
+          if ($LASTEXITCODE -ne 0 -or $tagCommit -ne $env:RELEASE_COMMIT) {
             throw 'Release 标签指向的提交与构建提交不一致'
           }
           $release = gh release view $tag --json isDraft,tagName,assets,url | ConvertFrom-Json
