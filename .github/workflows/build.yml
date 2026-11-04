@@ -5,6 +5,11 @@ on:
     branches-ignore: ['ci-shots/**']
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      release:
+        description: '要发布的版本号（如 1.1.0），留空则只构建不发布'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -25,8 +30,12 @@ jobs:
         run: |
           # 推送 v1.2.3 这样的标签时用标签里的版本号，否则用默认版本
           $v = "1.0.0"
-          if ("${{ github.ref_type }}" -eq "tag") { $v = "${{ github.ref_name }}".TrimStart("v") }
+          $tag = ""
+          if ("${{ github.ref_type }}" -eq "tag") { $tag = "${{ github.ref_name }}" }
+          if ("${{ inputs.release }}" -ne "") { $tag = "v" + "${{ inputs.release }}".TrimStart("v") }
+          if ($tag -ne "") { $v = $tag.TrimStart("v") }
           "APP_VERSION=$v" >> $env:GITHUB_ENV
+          "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
 
       - name: 单元测试
         run: dotnet test tests/KeBiao.Core.Tests -c Release
@@ -66,13 +75,15 @@ jobs:
           path: shots
 
       - name: 发布到 Releases
-        if: github.ref_type == 'tag'
+        if: env.RELEASE_TAG != ''
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $notes = "docs/更新说明/${{ github.ref_name }}.md"
-          $args = @("${{ github.ref_name }}", (Get-ChildItem dist\*.exe).FullName, "--title", "课表 ${{ github.ref_name }}")
+          $tag = $env:RELEASE_TAG
+          $notes = "docs/更新说明/$tag.md"
+          # 标签不存在时由这一步在当前提交上创建
+          $args = @($tag, (Get-ChildItem dist\*.exe).FullName, "--title", "课表 $tag", "--target", "${{ github.sha }}")
           if (Test-Path $notes) { $args += @("--notes-file", $notes) } else { $args += @("--generate-notes") }
           gh release create @args
           if ($LASTEXITCODE -ne 0) { exit 1 }
