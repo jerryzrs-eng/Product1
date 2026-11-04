@@ -1,0 +1,7 @@
+bin/
+obj/
+publish/
+dist/
+shots/
+*.user
+.vs/

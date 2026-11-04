@@ -1,0 +1,70 @@
+name: 构建
+
+on:
+  push:
+    branches-ignore: ['ci-shots/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: 单元测试
+        run: dotnet test tests/KeBiao.Core.Tests -c Release
+
+      - name: 发布程序
+        run: dotnet publish src/KeBiao.App -c Release -r win-x64 --self-contained true -o publish
+
+      - name: 界面截图
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "publish\KeBiao.exe" -ArgumentList '--screenshot', "$PWD\shots" -PassThru -Wait
+          if (Test-Path shots\log.txt) { Get-Content shots\log.txt }
+          if (Test-Path screenshot-error.txt) { Get-Content screenshot-error.txt }
+          if ($p.ExitCode -ne 0) { exit 1 }
+
+      - name: 生成模板
+        run: dotnet run --project tools/KeBiao.TemplateGen -c Release -- shots/templates
+
+      - name: 打包安装程序
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc installer\KeBiao.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-ChildItem dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 课表-安装包
+          path: dist/*.exe
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 截图
+          path: shots
+
+      - name: 截图推送到 ci-shots 分支
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path shots)) { exit 0 }
+          Set-Location shots
+          git init -q
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "screenshots ${{ github.sha }}"
+          git push -f -q "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" "HEAD:refs/heads/ci-shots/${{ github.ref_name }}"

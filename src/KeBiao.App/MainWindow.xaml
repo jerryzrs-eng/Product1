@@ -1,0 +1,10 @@
+<Window x:Class="KeBiao.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:KeBiao.App"
+        Title="课表" WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ResizeMode="NoResize" SizeToContent="WidthAndHeight" ShowInTaskbar="False" ShowActivated="False"
+        Stylus.IsPressAndHoldEnabled="False" Stylus.IsFlicksEnabled="False" Stylus.IsTapFeedbackEnabled="False"
+        UseLayoutRounding="True">
+    <local:ScheduleView x:Name="View" />
+</Window>
