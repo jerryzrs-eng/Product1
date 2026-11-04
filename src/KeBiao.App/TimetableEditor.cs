@@ -144,9 +144,9 @@ public sealed class TimetableEditor
         _rows.Clear();
 
         _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
-        _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(82) });
-        _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(82) });
-        for (int d = 0; d < 7; d++) _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(d < 5 ? 104 : 92) });
+        _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
+        _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
+        for (int d = 0; d < 7; d++) _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(d < 5 ? 100 : 86) });
 
         _grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         string[] heads = { "节次", "上课", "下课", "周一", "周二", "周三", "周四", "周五", "周六", "周日" };

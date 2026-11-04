@@ -18,6 +18,13 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        var zh = new System.Globalization.CultureInfo("zh-CN");
+        System.Globalization.CultureInfo.DefaultThreadCurrentCulture = zh;
+        System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = zh;
+        Thread.CurrentThread.CurrentCulture = zh;
+        Thread.CurrentThread.CurrentUICulture = zh;
+        FrameworkElement.LanguageProperty.OverrideMetadata(typeof(FrameworkElement),
+            new FrameworkPropertyMetadata(System.Windows.Markup.XmlLanguage.GetLanguage("zh-CN")));
         var args = e.Args;
 
         int shot = Array.IndexOf(args, "--screenshot");

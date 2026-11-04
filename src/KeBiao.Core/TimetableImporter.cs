@@ -236,6 +236,10 @@ public static partial class TimetableImporter
             }
         }
 
+        var sorted = result.Errors.OrderBy(e => e.Row).ThenBy(e => e.Column).ToList();
+        result.Errors.Clear();
+        result.Errors.AddRange(sorted);
+
         for (int d = 0; d < 5; d++)
             if (dayCols[d] < 0)
                 result.Warnings.Add(new ImportIssue(header + 1, 0, $"没有找到“{ScheduleEngine.WeekdayName(d + 1)}”这一列，当作没课"));
