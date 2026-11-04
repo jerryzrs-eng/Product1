@@ -160,16 +160,22 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
                         <StackPanel>
                             <TextBlock Text="{Binding ClassName}" FontSize="30" FontWeight="Bold" Foreground="{StaticResource Ink}"
                                        TextTrimming="CharacterEllipsis" />
-                            <Grid Margin="0,4,0,0">
+                        </StackPanel>
+                            <!-- 日期行单独占满整行宽度，箭头紧跟在日期后面 -->
+                            <Grid Grid.Row="1" Grid.ColumnSpan="2" Margin="0,4,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="{Binding DateText}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap"
-                                           VerticalAlignment="Center" MaxWidth="230">
+                                           VerticalAlignment="Center" MaxWidth="250">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">
                                             <Setter Property="Foreground" Value="{StaticResource InkSoft}" />
@@ -205,7 +211,6 @@
                                     </Button.Style>
                                 </Button>
                             </Grid>
-                        </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top"
                                     Visibility="{Binding EditMode, Converter={StaticResource NotVis}}">
                             <Button x:Name="LockButton" Style="{StaticResource IconButton}" />
