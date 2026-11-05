@@ -164,6 +164,13 @@ public sealed class AppController
     {
         var now = Now;
         var today = DateOnly.FromDateTime(now);
+        if (Vm.PreviewDate is { } preview && preview <= today)
+        {
+            _previewTimer.Stop();
+            Vm.PreviewDate = null;
+            Vm.PreviewRemaining = 0;
+            Vm.Collapsed = Ui.Collapsed && !Vm.EditMode;
+        }
         if (Vm.EditMode && ScheduleEngine.IsExpired(Data, ScheduleEngine.TimetableFor(Data, today), today))
         {
             Vm.EditMode = false;

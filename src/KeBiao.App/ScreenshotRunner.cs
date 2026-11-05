@@ -260,8 +260,10 @@ public static class ScreenshotRunner
             Require(store.Load().FindTimetable(archive.Id)!.ExpiresOn == Mon, "修改影响了另一份课表");
             Snap(window, "43d-设置-指定作废日期");
             now = At(Mon.AddDays(1), 0, 0);
+            app.Vm.PreviewDate = Mon;
             app.Refresh();
             Hidden();
+            Require(app.Vm.PreviewDate == null, "跨日恢复后仍保留过去的课表预览");
         }
         finally
         {
