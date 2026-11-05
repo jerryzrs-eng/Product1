@@ -178,12 +178,99 @@ public static class ScreenshotRunner
         Try("41-展开-周五看下一天-跳过周末", () => View("41-展开-周五看下一天-跳过周末", sample, At(Mon.AddDays(4), 18, 30),
             preview: ScheduleViewModel.NextSchoolDay(sample, Mon.AddDays(4))));
         Try("42-主窗口-双击底部自动适应", () => FitCheck(tmp + "-fit", sample, log));
+        Try("43-课表有效期-设置与主界面", () => CheckTimetableExpiry(tmp + "-expiry", sample));
 
         File.WriteAllText(Path.Combine(_dir, "log.txt"), log.ToString());
         try { Directory.Delete(tmp, true); } catch { }
     }
 
     private static DateTime At(DateOnly d, int h, int m) => d.ToDateTime(new TimeOnly(h, m));
+
+    private static void CheckTimetableExpiry(string dir, ScheduleData sample)
+    {
+        var data = sample.DeepClone();
+        data.Active.ExpiresOn = Mon;
+        var archive = data.Active.Clone("已归档课表");
+        data.Timetables.Add(archive);
+        var store = new DataStore(dir);
+        store.Save(data, "有效期实测");
+        var now = At(Mon, 10, 40);
+        var app = new AppController(store, () => now);
+        void Require(bool condition, string message)
+        {
+            if (!condition) throw new InvalidOperationException(message);
+        }
+        void Hidden()
+        {
+            Require(app.Vm.Rows.Count == 0 && app.Vm.CompactRows.All(r => r.State == RowState.Message), "作废课表仍显示课程");
+        }
+        Hidden();
+        View("43a-已作废-展开", data, now);
+        View("43b-已作废-折叠", data, now, collapsed: true);
+        app.Vm.PreviewDate = Mon.AddDays(1);
+        app.Refresh();
+        Hidden();
+        app.Vm.PreviewDate = null;
+        app.Refresh();
+        app.SwitchTimetable(archive.Id);
+        Require(app.Data.ActiveTimetableId == data.ActiveTimetableId, "仍可切换到作废课表");
+        bool ContainsArchive(System.Collections.IEnumerable items) => items.OfType<MenuItem>().Any(item =>
+            item.Header?.ToString()?.Contains(archive.Name) == true || ContainsArchive(item.Items));
+        Require(!ContainsArchive(app.BuildMenu().Items), "快捷菜单仍列出作废课表");
+
+        var window = new SettingsWindow(app);
+        window.Show();
+        try
+        {
+            window.ShowPage("table");
+            Pump();
+            T Find<T>(string name) where T : FrameworkElement
+            {
+                T? Search(DependencyObject parent)
+                {
+                    if (parent is T element && element.Name == name) return element;
+                    for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+                        if (Search(VisualTreeHelper.GetChild(parent, i)) is { } found) return found;
+                    return null;
+                }
+                return Search(window) ?? throw new InvalidOperationException("找不到控件：" + name);
+            }
+            var tables = Find<ComboBox>("TimetableChoice");
+            var mode = Find<ComboBox>("ExpiryMode");
+            var weeks = Find<TextBox>("ExpiryWeeks");
+            var expiry = Find<DatePicker>("ExpiryDate");
+            var save = Find<Button>("SaveTimetable");
+            Require(tables.Items.Count == 2 && tables.Items[1].ToString()!.Contains("已作废"), "设置中未保留作废课表");
+            Snap(window, "43c-设置-已作废课表");
+            mode.SelectedIndex = 0;
+            weeks.Text = "0";
+            tables.SelectedIndex = 1;
+            Require(tables.SelectedIndex == 0 && weeks.Text == "0", "切换课表丢失了无效的有效期输入");
+            weeks.Text = "24";
+            save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Require(store.Load().Active.ValidWeeks == 24 && store.Load().Active.ExpiresOn == null, "按周数设置未保存");
+            Require(app.Vm.Rows.Count > 0, "延长有效期后未恢复显示");
+            tables.SelectedIndex = 1;
+            Require(mode.SelectedIndex == 1 && expiry.SelectedDate == Mon.ToDateTime(TimeOnly.MinValue), "课表之间的有效期设置混淆");
+            tables.SelectedIndex = 0;
+            mode.SelectedIndex = 1;
+            expiry.SelectedDate = Mon.AddDays(1).ToDateTime(TimeOnly.MinValue);
+            save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Require(store.Load().Active.ExpiresOn == Mon.AddDays(1), "按日期设置未保存");
+            Require(store.Load().FindTimetable(archive.Id)!.ExpiresOn == Mon, "修改影响了另一份课表");
+            Snap(window, "43d-设置-指定作废日期");
+            now = At(Mon.AddDays(1), 0, 0);
+            app.Vm.PreviewDate = Mon;
+            app.Refresh();
+            Hidden();
+            Require(app.Vm.PreviewDate == null, "跨日恢复后仍保留过去的课表预览");
+        }
+        finally
+        {
+            app.AllowWindowClose();
+            window.Close();
+        }
+    }
 
     /// <summary>
     /// 实测主窗口：先设成装不下的固定高度，再执行“双击底部自动适应”，检查是否还有课被藏在下面。

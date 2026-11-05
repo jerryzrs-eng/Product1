@@ -20,14 +20,19 @@ public sealed class TimetableEditor
     private Timetable _tt;
     private BellSchedule _bell;
 
-    private readonly ComboBox _tables = new();
+    private readonly ComboBox _tables = new() { Name = "TimetableChoice" };
     private readonly ComboBox _bells = new();
     private readonly Button _useTable;
     private readonly Button _useBell;
     private readonly Button _save;
+    private readonly ComboBox _expiryMode = new() { Name = "ExpiryMode", Width = 120 };
+    private readonly TextBox _expiryWeeks = new() { Name = "ExpiryWeeks", Width = 72, MaxLength = 3 };
+    private readonly DatePicker _expiryDate = new() { Name = "ExpiryDate", Width = 240 };
+    private readonly TextBlock _expirySummary = new() { TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
     private readonly Grid _grid = new();
     private readonly List<Button> _timeButtons = new();
     private bool _loading;
+    private bool _validityValid = true;
 
     private bool _dirty;
 
@@ -64,6 +69,10 @@ public sealed class TimetableEditor
         DockPanel.SetDock(tableBar, Dock.Top);
         root.Children.Add(tableBar);
 
+        var validity = BuildValidityBar();
+        DockPanel.SetDock(validity, Dock.Top);
+        root.Children.Add(validity);
+
         _useBell = ToolButton("设为当前", UseBell);
         var bellBar = Bar("作息", _bells, _useBell,
             ToolButton("新建", NewBell), ToolButton("复制", CopyBell), ToolButton("重命名", RenameBell), ToolButton("删除", DeleteBell, "DangerButton"));
@@ -75,6 +84,7 @@ public sealed class TimetableEditor
         bottom.Children.Add(BottomButton("添加一节", AddRow));
         bottom.Children.Add(BottomButton("删除最后一节", RemoveRow));
         _save = BottomButton("保存", () => TrySave(), "PrimaryButton");
+        _save.Name = "SaveTimetable";
         _save.Margin = new Thickness(0);
         _save.IsEnabled = false;
         var discard = BottomButton("放弃修改", Discard);
@@ -97,6 +107,13 @@ public sealed class TimetableEditor
         _tables.SelectionChanged += (_, _) =>
         {
             if (_loading || _tables.SelectedIndex < 0) return;
+            if (!_validityValid)
+            {
+                _loading = true;
+                _tables.SelectedIndex = _draft.Timetables.IndexOf(_tt);
+                _loading = false;
+                return;
+            }
             _tt = _draft.Timetables[_tables.SelectedIndex];
             _bell = _tt.ActiveBell;
             RefreshBars();
@@ -105,6 +122,13 @@ public sealed class TimetableEditor
         _bells.SelectionChanged += (_, _) =>
         {
             if (_loading || _bells.SelectedIndex < 0) return;
+            if (!_validityValid)
+            {
+                _loading = true;
+                _bells.SelectedIndex = _tt.Bells.IndexOf(_bell);
+                _loading = false;
+                return;
+            }
             _bell = _tt.Bells[_bells.SelectedIndex];
             RefreshBars();
             BuildGrid();
@@ -170,9 +194,17 @@ public sealed class TimetableEditor
         _loading = true;
         _tables.Items.Clear();
         foreach (var t in _draft.Timetables)
-            _tables.Items.Add(t.Id == _app.Data.ActiveTimetableId ? $"{t.Name}（当前）" : t.Name);
+            _tables.Items.Add(t.Name + (ScheduleEngine.IsExpired(_app.Data, t, DateOnly.FromDateTime(_app.Now))
+                ? "（已作废）" : t.Id == _app.Data.ActiveTimetableId ? "（当前）" : ""));
         _tables.SelectedIndex = _draft.Timetables.IndexOf(_tt);
-        _useTable.IsEnabled = _tt.Id != _app.Data.ActiveTimetableId;
+        UpdateUseTable();
+        if (_validityValid)
+        {
+            _expiryMode.SelectedIndex = _tt.ExpiresOn.HasValue ? 1 : 0;
+            _expiryWeeks.Text = _tt.ValidWeeks.ToString();
+            _expiryDate.SelectedDate = (_tt.ExpiresOn ?? ScheduleEngine.ExpiryDate(_app.Data, _tt)).ToDateTime(TimeOnly.MinValue);
+        }
+        UpdateValiditySummary(_validityValid);
 
         _bells.Items.Clear();
         foreach (var b in _tt.Bells)
@@ -180,6 +212,81 @@ public sealed class TimetableEditor
         _bells.SelectedIndex = _tt.Bells.IndexOf(_bell);
         _useBell.IsEnabled = _bell.Id != _tt.ActiveBellId;
         _loading = false;
+    }
+
+    private UIElement BuildValidityBar()
+    {
+        _expiryMode.Items.Add("按周数");
+        _expiryMode.Items.Add("按日期");
+        System.Windows.Automation.AutomationProperties.SetName(_expiryMode, "作废方式");
+        System.Windows.Automation.AutomationProperties.SetName(_expiryWeeks, "有效周数");
+        System.Windows.Automation.AutomationProperties.SetName(_expiryDate, "作废日期");
+        var row = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
+        row.Children.Add(new TextBlock { Text = "有效期", Width = 48, VerticalAlignment = VerticalAlignment.Center, Foreground = R("InkSoft") });
+        foreach (var control in new FrameworkElement[] { _expiryMode, _expiryWeeks, _expiryDate, _expirySummary })
+        {
+            control.Margin = new Thickness(0, 0, 12, 0);
+            row.Children.Add(control);
+        }
+        _expiryMode.SelectionChanged += (_, _) =>
+        {
+            if (!_loading && _expiryMode.SelectedIndex == 1 && !_tt.ExpiresOn.HasValue)
+            {
+                _loading = true;
+                _expiryDate.SelectedDate = ScheduleEngine.ExpiryDate(_app.Data, _tt).ToDateTime(TimeOnly.MinValue);
+                _loading = false;
+            }
+            EditValidity();
+        };
+        _expiryWeeks.TextChanged += (_, _) => EditValidity();
+        _expiryDate.SelectedDateChanged += (_, _) => EditValidity();
+        return row;
+    }
+
+    private bool ReadValidity()
+    {
+        if (_expiryMode.SelectedIndex == 0)
+        {
+            if (!int.TryParse(_expiryWeeks.Text, out int weeks) || weeks is < 1 or > Timetable.MaxValidWeeks) return false;
+            _tt.ValidWeeks = weeks;
+            _tt.ExpiresOn = null;
+        }
+        else
+        {
+            if (_expiryDate.SelectedDate is not DateTime date) return false;
+            _tt.ExpiresOn = DateOnly.FromDateTime(date);
+        }
+        return true;
+    }
+
+    private void EditValidity()
+    {
+        if (_loading) return;
+        Dirty = true;
+        _validityValid = ReadValidity();
+        UpdateValiditySummary(_validityValid);
+        UpdateUseTable();
+    }
+
+    private void UpdateUseTable()
+    {
+        var today = DateOnly.FromDateTime(_app.Now);
+        _useTable.IsEnabled = _validityValid && _tt.Id != _app.Data.ActiveTimetableId &&
+            _app.Data.FindTimetable(_tt.Id) is { } saved && !ScheduleEngine.IsExpired(_app.Data, saved, today) &&
+            !ScheduleEngine.IsExpired(_app.Data, _tt, today);
+    }
+
+    private void UpdateValiditySummary(bool valid = true)
+    {
+        bool weeks = _expiryMode.SelectedIndex == 0;
+        _expiryWeeks.Visibility = weeks ? Visibility.Visible : Visibility.Collapsed;
+        _expiryDate.Visibility = weeks ? Visibility.Collapsed : Visibility.Visible;
+        var date = ScheduleEngine.ExpiryDate(_app.Data, _tt);
+        bool expired = ScheduleEngine.IsExpired(_app.Data, _tt, DateOnly.FromDateTime(_app.Now));
+        _expirySummary.Foreground = R(valid ? "InkSoft" : "WarnInk");
+        string anchor = _app.Data.TermStart.HasValue ? "从开学周起" : "从首次启用日起";
+        _expirySummary.Text = !valid ? (weeks ? "请输入 1–520 周" : "请选择作废日期")
+            : $"{(weeks ? anchor + " · " : "")}{date:yyyy年M月d日}起作废{(expired ? " · 仅在设置中保留" : "")}";
     }
 
     // ---------- 表格 ----------
@@ -418,6 +525,11 @@ public sealed class TimetableEditor
     public bool TrySave()
     {
         if (!Dirty) return true;
+        if (!ReadValidity())
+        {
+            ChoiceDialog.Info("有效期未填写完整", _expiryMode.SelectedIndex == 0 ? "请输入 1–520 之间的周数。" : "请选择作废日期。");
+            return false;
+        }
 
         var all = new List<string>();
         foreach (var t in _draft.Timetables)
@@ -438,7 +550,7 @@ public sealed class TimetableEditor
 
         var data = _app.Data.DeepClone();
         data.Timetables = _draft.DeepClone().Timetables;
-        if (!_app.TrySaveData(data, "编辑课表与作息")) return false;
+        if (!_app.TrySaveData(data, "编辑课表、作息与有效期")) return false;
         Dirty = false;
         RefreshBars();
         return true;
@@ -498,11 +610,17 @@ public sealed class TimetableEditor
             ChoiceDialog.Info("请先保存新课表", "保存后即可设为当前课表。");
             return;
         }
+        if (ScheduleEngine.IsExpired(_app.Data, _app.Data.FindTimetable(_tt.Id)!, DateOnly.FromDateTime(_app.Now)))
+        {
+            ChoiceDialog.Info("课表已作废", "调整有效期并保存后，才可设为当前课表。");
+            return;
+        }
         _app.SwitchTimetable(_tt.Id);
     }
 
     private void NewTable()
     {
+        if (!_validityValid) return;
         var name = TextInputDialog.Ask("新课表的名称", "期中考试");
         if (string.IsNullOrWhiteSpace(name)) return;
         var t = new Timetable { Name = name.Trim() };
@@ -521,6 +639,7 @@ public sealed class TimetableEditor
 
     private void CopyTable()
     {
+        if (!_validityValid) return;
         var name = TextInputDialog.Ask("复制出的课表名称", $"{_tt.Name} 副本");
         if (string.IsNullOrWhiteSpace(name)) return;
         var t = _tt.Clone(name.Trim());
@@ -543,6 +662,7 @@ public sealed class TimetableEditor
 
     private void DeleteTable()
     {
+        if (!_validityValid) return;
         if (_draft.Timetables.Count <= 1) { ChoiceDialog.Info("至少要保留一张课表", null); return; }
         int days = _draft.DayOverrides.Count(o => o.Kind == DayOverrideKind.UseTimetable && o.TimetableId == _tt.Id);
         var body = days > 0 ? $"有 {days} 天的日期调整用到这张课表，会一起删除。" : null;

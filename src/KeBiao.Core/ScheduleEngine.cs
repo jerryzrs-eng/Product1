@@ -11,7 +11,10 @@ public sealed record DayPlan(
     DayOverride? Override,
     Timetable Timetable,
     bool HasSubjectOverride,
-    IReadOnlyList<Lesson> Lessons);
+    IReadOnlyList<Lesson> Lessons)
+{
+    public bool IsExpired { get; init; }
+}
 
 public enum Phase
 {
@@ -48,6 +51,22 @@ public static class ScheduleEngine
     public static int ToWeekday(DayOfWeek d) => d == DayOfWeek.Sunday ? 7 : (int)d;
 
     public static DateOnly MondayOf(DateOnly d) => d.AddDays(-(ToWeekday(d.DayOfWeek) - 1));
+
+    /// <summary>指定日期优先；默认在有效周数结束后的第一天作废。</summary>
+    public static DateOnly ExpiryDate(ScheduleData data, Timetable table)
+    {
+        if (table.ExpiresOn is { } expiresOn) return expiresOn;
+        var start = data.TermStart is { } termStart
+            ? MondayOf(termStart)
+            : table.CreatedOn ?? DateOnly.FromDateTime(DateTime.Today);
+        int weeks = table.ValidWeeks is >= 1 and <= Timetable.MaxValidWeeks
+            ? table.ValidWeeks : Timetable.DefaultValidWeeks;
+        int day = Math.Min(DateOnly.MaxValue.DayNumber, start.DayNumber + weeks * 7);
+        return DateOnly.FromDayNumber(day);
+    }
+
+    public static bool IsExpired(ScheduleData data, Timetable table, DateOnly date) =>
+        date >= ExpiryDate(data, table);
 
     /// <summary>第几周（开学那周为第 1 周）。没填开学日期或还没开学时返回 null。</summary>
     public static int? WeekNumber(ScheduleData data, DateOnly date)
@@ -132,12 +151,13 @@ public static class ScheduleEngine
         weekday = ov?.Kind == DayOverrideKind.FollowWeekday ? Math.Clamp(ov.Weekday, 1, 7) : ToWeekday(date.DayOfWeek);
         odd = IsOddWeek(data, date);
         var tt = TimetableFor(data, date);
+        bool expired = IsExpired(data, tt, date);
         var bell = tt.ActiveBell;
         var list = new List<string>(bell.Periods.Count);
         for (int i = 0; i < bell.Periods.Count; i++)
         {
             string raw = i < tt.Grid.Count && tt.Grid[i].Count >= weekday ? tt.Grid[i][weekday - 1] : "";
-            list.Add(holiday ? "" : CellParser.Resolve(raw, odd));
+            list.Add(holiday || expired ? "" : CellParser.Resolve(raw, odd));
         }
         return list;
     }
@@ -145,14 +165,15 @@ public static class ScheduleEngine
     public static DayPlan GetDayPlan(ScheduleData data, DateOnly date)
     {
         var subjects = BaseSubjects(data, date, out int weekday, out bool odd, out bool holiday);
-        var subOv = holiday ? null : data.SubjectOverrides.LastOrDefault(o => o.Date == date);
+        var tt = TimetableFor(data, date);
+        bool expired = IsExpired(data, tt, date);
+        var subOv = holiday || expired ? null : data.SubjectOverrides.LastOrDefault(o => o.Date == date);
         if (subOv != null)
         {
             for (int i = 0; i < subjects.Count && i < subOv.Subjects.Count; i++)
                 subjects[i] = subOv.Subjects[i] ?? "";
         }
 
-        var tt = TimetableFor(data, date);
         var bell = tt.ActiveBell;
         var tags = bell.Tags();
         var lessons = new List<Lesson>();
@@ -165,7 +186,7 @@ public static class ScheduleEngine
         lessons.Sort((a, b) => a.Start.CompareTo(b.Start));
 
         return new DayPlan(date, holiday, weekday, WeekNumber(data, date), odd,
-            GetOverride(data, date), tt, subOv != null, lessons);
+            GetOverride(data, date), tt, subOv != null, lessons) { IsExpired = expired };
     }
 
     public static Status GetStatus(ScheduleData data, DateTime now)

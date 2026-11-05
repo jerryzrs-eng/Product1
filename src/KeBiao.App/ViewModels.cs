@@ -119,7 +119,7 @@ public sealed class ScheduleViewModel : Observable
         if (data.UsesParity) extra.Add(plan.IsOddWeek ? "单周" : "双周");
         if (plan.Override?.Kind == DayOverrideKind.FollowWeekday)
             extra.Add($"按{ScheduleEngine.WeekdayName(plan.Override.Weekday)}上课");
-        if (plan.Override?.Kind == DayOverrideKind.UseTimetable)
+        if (!plan.IsExpired && plan.Override?.Kind == DayOverrideKind.UseTimetable)
             extra.Add($"用“{plan.Timetable.Name}”");
         return extra.Count == 0 ? date : date + " · " + string.Join(" ", extra);
     }
@@ -145,7 +145,7 @@ public sealed class ScheduleViewModel : Observable
         DateText = DateLine(data, plan, diff is 1 or 2 ? DayLabel(DateOnly.FromDateTime(now), day) : "");
         Sync(Rows, plan.Lessons.Select(l => MakeRow(l, RowState.Future, 0, false)).ToList());
         VisiblePeriods = (null, null);
-        EmptyText = plan.Lessons.Count > 0 ? null : plan.IsHoliday ? "放假" : "无课";
+        EmptyText = plan.IsExpired ? "课表已作废" : plan.Lessons.Count > 0 ? null : plan.IsHoliday ? "放假" : "无课";
         FooterText = null;
     }
 
@@ -183,7 +183,12 @@ public sealed class ScheduleViewModel : Observable
             ? $"{DayLabel(DateOnly.FromDateTime(now), ld)} {s.LaterFirst.Name} {s.LaterFirst.Start:HH\\:mm}"
             : null;
 
-        if (data.IsEmpty)
+        if (plan.IsExpired)
+        {
+            EmptyText = "课表已作废";
+            FooterText = null;
+        }
+        else if (data.IsEmpty)
         {
             EmptyText = "还没有课表\n长按这里，进入设置导入";
             FooterText = null;
@@ -207,7 +212,11 @@ public sealed class ScheduleViewModel : Observable
 
         // 折叠时先显示当前状态，再显示当天的下一节课。
         var compact = new List<LessonRow>();
-        if (data.IsEmpty && plan.Lessons.Count == 0)
+        if (plan.IsExpired)
+        {
+            compact.Add(Message("课表已作废"));
+        }
+        else if (data.IsEmpty && plan.Lessons.Count == 0)
         {
             compact.Add(Message("还没有课表"));
         }

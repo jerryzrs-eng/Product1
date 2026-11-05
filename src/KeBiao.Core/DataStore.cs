@@ -37,15 +37,29 @@ public sealed class DataStore
     {
         if (File.Exists(DataPath))
         {
+            ScheduleData? loaded = null;
+            bool needsExpiryMigration = false;
             try
             {
                 var data = JsonSerializer.Deserialize<ScheduleData>(File.ReadAllText(DataPath), JsonOptions.Default);
-                if (data != null) { data.Normalize(); return data; }
+                if (data != null)
+                {
+                    needsExpiryMigration = data.LegacyGrid != null || data.LegacyBells != null
+                        || data.Timetables.Count == 0 || data.Timetables.Any(t => t.CreatedOn == null);
+                    data.Normalize();
+                    loaded = data;
+                }
             }
             catch (Exception)
             {
                 // 文件损坏：保留现场，改用最近的备份
                 try { File.Copy(DataPath, DataPath + $".damaged-{DateTime.Now:yyyyMMddHHmmss}", true); } catch { }
+            }
+            if (loaded != null)
+            {
+                // 固定旧课表的首次启用日期；写盘失败须直接报告，不能回退到旧备份。
+                if (needsExpiryMigration) WriteAtomic(loaded);
+                return loaded;
             }
             foreach (var b in ListBackups())
             {
