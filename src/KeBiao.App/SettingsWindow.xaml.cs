@@ -27,6 +27,7 @@ public partial class SettingsWindow : Window
         NavDates.Checked += (_, _) => Navigate("dates");
         NavImport.Checked += (_, _) => Navigate("import");
         NavHistory.Checked += (_, _) => Navigate("history");
+        NavAbout.Checked += (_, _) => Navigate("about");
         NavBasic.IsChecked = true;
         Closing += (_, e) => { if (!_app.Exiting && !ConfirmLeaveEditor()) e.Cancel = true; };
     }
@@ -36,7 +37,7 @@ public partial class SettingsWindow : Window
 
     public void ShowPage(string page)
     {
-        var nav = page switch { "table" => NavTable, "dates" => NavDates, "import" => NavImport, "history" => NavHistory, _ => NavBasic };
+        var nav = page switch { "table" => NavTable, "dates" => NavDates, "import" => NavImport, "history" => NavHistory, "about" => NavAbout, _ => NavBasic };
         if (nav.IsChecked == true) Navigate(page, force: true);
         else nav.IsChecked = true;
     }
@@ -71,6 +72,7 @@ public partial class SettingsWindow : Window
             "dates" => BuildDatesPage(),
             "import" => BuildImportPage(),
             "history" => BuildHistoryPage(),
+            "about" => BuildAboutPage(),
             _ => BuildBasicPage(),
         };
     }
@@ -518,6 +520,26 @@ public partial class SettingsWindow : Window
             g.Children.Add(t); g.Children.Add(r); g.Children.Add(restore);
             root.Children.Add(g);
         }
+        return Scroll(root);
+    }
+
+    // ---------- 关于 ----------
+
+    private UIElement BuildAboutPage()
+    {
+        var root = new StackPanel();
+        root.Children.Add(PageTitle("关于"));
+        root.Children.Add(new FrameworkElement { Height = 12 });
+
+        var version = new TextBlock
+        {
+            Text = $"当前版本：{AppController.AppVersion}",
+            FontSize = 16,
+            FontWeight = FontWeights.SemiBold,
+        };
+        root.Children.Add(version);
+        root.Children.Add(new FrameworkElement { Height = 8 });
+        root.Children.Add(Hint("教室电子白板用的课表小工具，离线使用，适用于 Windows 10 / 11（64 位）。"));
         return Scroll(root);
     }
 }
