@@ -242,6 +242,63 @@
                                    Visibility="{Binding HasEmptyText, Converter={StaticResource Vis}}" />
                         <ScrollViewer x:Name="RowsScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                                       PanningMode="VerticalOnly" Padding="10,0">
+                            <ScrollViewer.Resources>
+                                <!-- 保留较宽的操作区域，只绘制纤细的圆角滑块。 -->
+                                <Style TargetType="ScrollBar">
+                                    <Setter Property="Width" Value="14" />
+                                    <Setter Property="Background" Value="Transparent" />
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="ScrollBar">
+                                                <Grid Background="{TemplateBinding Background}">
+                                                    <Track x:Name="PART_Track" Orientation="Vertical" IsDirectionReversed="True">
+                                                        <Track.DecreaseRepeatButton>
+                                                            <RepeatButton Command="ScrollBar.PageUpCommand" Focusable="False">
+                                                                <RepeatButton.Template>
+                                                                    <ControlTemplate TargetType="RepeatButton">
+                                                                        <Border Background="Transparent" />
+                                                                    </ControlTemplate>
+                                                                </RepeatButton.Template>
+                                                            </RepeatButton>
+                                                        </Track.DecreaseRepeatButton>
+                                                        <Track.Thumb>
+                                                            <Thumb MinHeight="24">
+                                                                <Thumb.Template>
+                                                                    <ControlTemplate TargetType="Thumb">
+                                                                        <Grid Background="Transparent">
+                                                                            <Border x:Name="handle" Width="4" CornerRadius="3"
+                                                                                    Background="{StaticResource InkMuted}" Opacity="0.5" />
+                                                                        </Grid>
+                                                                        <ControlTemplate.Triggers>
+                                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                                <Setter TargetName="handle" Property="Width" Value="6" />
+                                                                                <Setter TargetName="handle" Property="Opacity" Value="0.8" />
+                                                                            </Trigger>
+                                                                            <Trigger Property="IsDragging" Value="True">
+                                                                                <Setter TargetName="handle" Property="Width" Value="6" />
+                                                                                <Setter TargetName="handle" Property="Opacity" Value="1" />
+                                                                            </Trigger>
+                                                                        </ControlTemplate.Triggers>
+                                                                    </ControlTemplate>
+                                                                </Thumb.Template>
+                                                            </Thumb>
+                                                        </Track.Thumb>
+                                                        <Track.IncreaseRepeatButton>
+                                                            <RepeatButton Command="ScrollBar.PageDownCommand" Focusable="False">
+                                                                <RepeatButton.Template>
+                                                                    <ControlTemplate TargetType="RepeatButton">
+                                                                        <Border Background="Transparent" />
+                                                                    </ControlTemplate>
+                                                                </RepeatButton.Template>
+                                                            </RepeatButton>
+                                                        </Track.IncreaseRepeatButton>
+                                                    </Track>
+                                                </Grid>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </ScrollViewer.Resources>
                             <ItemsControl x:Name="RowsList" ItemsSource="{Binding Rows}" ItemTemplate="{StaticResource RowTemplate}" />
                         </ScrollViewer>
                     </Grid>
