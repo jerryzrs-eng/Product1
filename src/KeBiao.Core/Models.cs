@@ -55,10 +55,22 @@ public sealed class BellSchedule
 /// <summary>一张课表：科目表 + 它自己的若干套作息。</summary>
 public sealed class Timetable
 {
+    public const int DefaultValidWeeks = 23;
+    public const int MaxValidWeeks = 520;
+
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "课表";
     public string ActiveBellId { get; set; } = "";
     public List<BellSchedule> Bells { get; set; } = new();
+
+    /// <summary>有效周数；有开学日期时按开学所在周计数，否则从首次启用日期起算。</summary>
+    public int ValidWeeks { get; set; } = DefaultValidWeeks;
+
+    /// <summary>指定作废日，从该日零点起不再显示课程；设置后优先于有效周数。</summary>
+    public DateOnly? ExpiresOn { get; set; }
+
+    /// <summary>首次启用日期，作为未填写开学日期时的固定起点。</summary>
+    public DateOnly? CreatedOn { get; set; }
 
     /// <summary>行 = 节次，列 = 周一…周日（固定 7 列），格子里是原始文字（单双周写成“单:x 双:y”）。</summary>
     public List<List<string>> Grid { get; set; } = new();
@@ -84,6 +96,8 @@ public sealed class Timetable
 
     public void Normalize()
     {
+        if (ValidWeeks is < 1 or > MaxValidWeeks) ValidWeeks = DefaultValidWeeks;
+        CreatedOn ??= DateOnly.FromDateTime(DateTime.Today);
         if (Bells.Count == 0) Bells.Add(new BellSchedule());
         _ = ActiveBell;
         foreach (var b in Bells)
