@@ -160,7 +160,17 @@ public sealed class AppController
 
     // ---------- 刷新与保存 ----------
 
-    public void Refresh() => Vm.Update(Data, Now);
+    public void Refresh()
+    {
+        var now = Now;
+        var today = DateOnly.FromDateTime(now);
+        if (Vm.EditMode && ScheduleEngine.IsExpired(Data, ScheduleEngine.TimetableFor(Data, today), today))
+        {
+            Vm.EditMode = false;
+            Vm.Collapsed = Ui.Collapsed;
+        }
+        Vm.Update(Data, now);
+    }
 
     private void PruneIfNeeded(bool force)
     {
@@ -303,6 +313,12 @@ public sealed class AppController
     public void SetEditMode(bool on)
     {
         if (on) ExitPreview();
+        var today = DateOnly.FromDateTime(Now);
+        if (on && ScheduleEngine.IsExpired(Data, ScheduleEngine.TimetableFor(Data, today), today))
+        {
+            ChoiceDialog.Info("课表已作废", "请在设置中查看课表或调整有效期。");
+            return;
+        }
         if (on && Data.IsEmpty)
         {
             ChoiceDialog.Info("还没有课表", "先在设置里导入课表，再来调课。");
@@ -320,6 +336,7 @@ public sealed class AppController
         if (a == b) return;
         var today = DateOnly.FromDateTime(Now);
         var plan = ScheduleEngine.GetDayPlan(Data, today);
+        if (plan.IsExpired) return;
         var tags = plan.Timetable.ActiveBell.Tags();
         string Name(int i) => plan.Lessons.FirstOrDefault(l => l.Index == i)?.Name ?? "空";
         string P(int i) => i < tags.Count ? ScheduleEngine.PeriodName(tags[i]) : $"第{i + 1}节";
@@ -329,7 +346,8 @@ public sealed class AppController
             null,
             "仅今天",
             $"以后每个{weekday}都这样");
-        if (choice < 0) return;
+        if (choice < 0 || DateOnly.FromDateTime(Now) != today ||
+            ScheduleEngine.IsExpired(Data, plan.Timetable, DateOnly.FromDateTime(Now))) return;
         if (choice == 0)
         {
             ScheduleEngine.SwapForDay(Data, today, a, b);
@@ -364,6 +382,7 @@ public sealed class AppController
     public void SwitchTimetable(string id)
     {
         if (Data.ActiveTimetableId == id || Data.FindTimetable(id) is not { } t) return;
+        if (ScheduleEngine.IsExpired(Data, t, DateOnly.FromDateTime(Now))) return;
         var data = Data.DeepClone();
         data.ActiveTimetableId = id;
         TrySaveData(data, $"切换到课表“{t.Name}”");
@@ -417,7 +436,7 @@ public sealed class AppController
         var holiday = new MenuItem { Header = "今天放假", IsCheckable = true, IsChecked = ov?.Kind == DayOverrideKind.Holiday };
         holiday.Click += (_, _) => SetDay(today, DayOverrideKind.Holiday);
         day.Items.Add(holiday);
-        foreach (var t in Data.Timetables.Where(t => t.Id != Data.ActiveTimetableId))
+        foreach (var t in Data.Timetables.Where(t => t.Id != Data.ActiveTimetableId && !ScheduleEngine.IsExpired(Data, t, today)))
         {
             var id = t.Id;
             var item = new MenuItem
@@ -438,10 +457,11 @@ public sealed class AppController
         day.Items.Add(other);
         menu.Items.Add(day);
 
-        if (Data.Timetables.Count > 1)
+        var availableTables = Data.Timetables.Where(t => !ScheduleEngine.IsExpired(Data, t, today)).ToList();
+        if (availableTables.Any(t => t.Id != Data.ActiveTimetableId))
         {
             var switcher = new MenuItem { Header = "切换课表" };
-            foreach (var t in Data.Timetables)
+            foreach (var t in availableTables)
             {
                 var id = t.Id;
                 var item = new MenuItem { Header = t.Name, IsCheckable = true, IsChecked = t.Id == Data.ActiveTimetableId };
@@ -451,7 +471,7 @@ public sealed class AppController
             menu.Items.Add(switcher);
         }
 
-        if (!Vm.EditMode && !Data.IsEmpty)
+        if (!Vm.EditMode && !Data.IsEmpty && !ScheduleEngine.IsExpired(Data, ScheduleEngine.TimetableFor(Data, today), today))
         {
             var next = new MenuItem { Header = Vm.IsPreview ? "回到今天" : "看下一天的课" };
             next.Click += (_, _) => TogglePreview();
