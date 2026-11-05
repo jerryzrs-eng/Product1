@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -22,6 +23,17 @@ public sealed class AppController
 
     /// <summary>查看下一天的课多久后自动回到今天。</summary>
     public static readonly TimeSpan PreviewDuration = TimeSpan.FromSeconds(20);
+
+    /// <summary>当前版本号，形如 1.3.0（去掉程序集版本末尾的修订号 0）。</summary>
+    public static string AppVersion
+    {
+        get
+        {
+            var v = Assembly.GetExecutingAssembly().GetName().Version;
+            if (v == null) return "未知";
+            return v.Build < 0 ? $"{v.Major}.{v.Minor}" : $"{v.Major}.{v.Minor}.{v.Build}";
+        }
+    }
     private System.Windows.Forms.NotifyIcon? _tray;
     private SettingsWindow? _settings;
     private DateOnly _lastDate;
@@ -454,6 +466,10 @@ public sealed class AppController
         settings.Click += (_, _) => OpenSettings(null);
         menu.Items.Add(settings);
 
+        var about = new MenuItem { Header = "关于课表" };
+        about.Click += (_, _) => ShowAbout();
+        menu.Items.Add(about);
+
         menu.Items.Add(new Separator());
         var exit = new MenuItem { Header = "退出" };
         exit.Click += (_, _) => Exit(confirm: true);
@@ -471,6 +487,12 @@ public sealed class AppController
             if (PresentationSource.FromVisual(menu) is HwndSource src) Native.SetForegroundWindow(src.Handle);
         };
         menu.IsOpen = true;
+    }
+
+    /// <summary>显示关于信息：当前版本号。</summary>
+    public void ShowAbout()
+    {
+        ChoiceDialog.Info("关于课表", $"课表（教室电子白板课程表小工具）\n\n当前版本：{AppVersion}");
     }
 
     // ---------- 设置 / 退出 ----------
