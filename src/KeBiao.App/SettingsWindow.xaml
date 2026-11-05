@@ -16,6 +16,7 @@
             <RadioButton x:Name="NavDates" Style="{StaticResource NavItem}" Content="日期调整" GroupName="nav" />
             <RadioButton x:Name="NavImport" Style="{StaticResource NavItem}" Content="导入导出" GroupName="nav" />
             <RadioButton x:Name="NavHistory" Style="{StaticResource NavItem}" Content="历史版本" GroupName="nav" />
+            <RadioButton x:Name="NavAbout" Style="{StaticResource NavItem}" Content="关于" GroupName="nav" />
         </StackPanel>
         <Border Grid.Column="1" Background="{StaticResource Surface}" CornerRadius="16,0,0,0" BorderBrush="#0F000000" BorderThickness="1,1,0,0">
             <ContentControl x:Name="PageHost" Margin="36,28,36,24" />
