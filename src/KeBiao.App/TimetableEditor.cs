@@ -27,7 +27,7 @@ public sealed class TimetableEditor
     private readonly Button _save;
     private readonly ComboBox _expiryMode = new() { Name = "ExpiryMode", Width = 120 };
     private readonly TextBox _expiryWeeks = new() { Name = "ExpiryWeeks", Width = 72, MaxLength = 3 };
-    private readonly DatePicker _expiryDate = new() { Name = "ExpiryDate", Width = 180 };
+    private readonly DatePicker _expiryDate = new() { Name = "ExpiryDate", Width = 240 };
     private readonly TextBlock _expirySummary = new() { TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
     private readonly Grid _grid = new();
     private readonly List<Button> _timeButtons = new();
